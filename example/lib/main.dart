@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 
 import 'package:multiview_desktop/multiview_desktop.dart';
 import 'package:tray_manager/tray_manager.dart';
+import 'e2e/e2e.dart';
 import 'pages/home.dart';
 import 'l10n/example_localizations.dart';
 import 'theme/app_themes.dart';
@@ -30,11 +31,24 @@ Future<void> initSystemTray() async {
   await trayManager.setContextMenu(menu);
 }
 
-void main() {
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // Optional surface-layer E2E harness (Python scripts). Disabled unless
+  // `--dart-define=MVD_E2E=true`. Handlers are injected here — not baked into
+  // the HTTP server or into multiview_desktop core.
+  final e2eStore = E2eContextStore();
+  await maybeStartE2eHarness(
+    handlers: buildExampleE2eHandlers(ExampleE2eHandlerDeps(contexts: e2eStore)),
+  );
+
   runMultiApp(
     home: (globalScopeContext, id) {
-      return const MainWindowRoot();
+      // E2eHost must sit *inside* MaterialApp (see MainWindowRoot) so overlay /
+      // MaterialLocalizations work for primary-window RPC.
+      return MainWindowRoot(
+        e2eStore: e2eEnabledFromEnvironment() ? e2eStore : null,
+      );
     },
     globalScope: (child) {
       //any providers...
@@ -163,7 +177,11 @@ class AppWindowObserver extends WindowObserver {
 /// which is defined inside pages/home.dart and shares the same `themeConfig`
 /// singleton.
 class MainWindowRoot extends StatefulWidget {
-  const MainWindowRoot({super.key});
+  const MainWindowRoot({super.key, this.e2eStore});
+
+  /// When set, [HomePage] is wrapped so the primary view context is registered
+  /// under MaterialApp (needed for overlay / popup E2E on the primary window).
+  final E2eContextStore? e2eStore;
 
   @override
   State<MainWindowRoot> createState() => _MainWindowRootState();
@@ -247,7 +265,9 @@ class _MainWindowRootState extends State<MainWindowRoot> with TrayListener {
       locale: const Locale('en'),
       localizationsDelegates: exampleLocalizationDelegates(),
       supportedLocales: ExampleLocalizations.supportedLocales,
-      home: const HomePage(),
+      home: widget.e2eStore != null
+          ? E2eHost(store: widget.e2eStore!, child: const HomePage())
+          : const HomePage(),
     );
   }
 }

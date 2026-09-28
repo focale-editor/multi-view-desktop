@@ -48,3 +48,7 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+# Multiview E2E generated reports (keep results/.gitkeep)
+/tool/multiview_e2e/results/*
+!/tool/multiview_e2e/results/.gitkeep

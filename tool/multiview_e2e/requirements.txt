@@ -1,0 +1,1 @@
+# Multiview E2E — stdlib only (urllib). No pip packages required.
