@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import signal
 import subprocess
@@ -39,6 +40,7 @@ def launched_example(
     device: str | None = None,
     port: int = 9876,
     extra_defines: list[str] | None = None,
+    extra_env: dict[str, str] | None = None,
     ready_timeout: float = 120.0,
     allow_exit: bool = False,
 ) -> Iterator[tuple[MvdE2eClient, subprocess.Popen[str]]]:
@@ -46,11 +48,38 @@ def launched_example(
     device = device or default_device()
     env = os.environ.copy()
     env["MVD_E2E_PORT"] = str(port)
+    if extra_env:
+        env.update(extra_env)
 
     defines = [
         "--dart-define=MVD_E2E=true",
         f"--dart-define=MVD_E2E_PORT={port}",
+        # Bust const dart-define cache when macos params / other defines change.
+        f"--dart-define=MVD_E2E_EPOCH={time.time_ns()}",
     ]
+
+    # macOS .app often does not inherit custom env; materialize params to a file
+    # and point the app at it via dart-define (path is compile-time; file is runtime).
+    macos_file: Path | None = None
+    if extra_env and (
+        "MVD_E2E_CLOSE_APP_AFTER_LAST" in extra_env
+        or "MVD_E2E_SAVE_LAST_WINDOW" in extra_env
+    ):
+        tool_dir = EXAMPLE_DIR / ".dart_tool"
+        tool_dir.mkdir(parents=True, exist_ok=True)
+        macos_file = tool_dir / f"mvd_e2e_macos_params_{port}.json"
+        payload: dict[str, bool] = {}
+        if "MVD_E2E_CLOSE_APP_AFTER_LAST" in extra_env:
+            payload["closeAppAfterLastWindowClosed"] = _env_truthy(
+                extra_env["MVD_E2E_CLOSE_APP_AFTER_LAST"]
+            )
+        if "MVD_E2E_SAVE_LAST_WINDOW" in extra_env:
+            payload["saveLastWindowToReopen"] = _env_truthy(
+                extra_env["MVD_E2E_SAVE_LAST_WINDOW"]
+            )
+        macos_file.write_text(json.dumps(payload), encoding="utf-8")
+        defines.append(f"--dart-define=MVD_E2E_MACOS_PARAMS_FILE={macos_file}")
+
     if extra_defines:
         defines.extend(extra_defines)
 
@@ -80,6 +109,17 @@ def launched_example(
             raise E2eError(f"Flutter process exited early with code {proc.returncode}")
     finally:
         _terminate(proc)
+        if macos_file is not None:
+            try:
+                macos_file.unlink(missing_ok=True)
+            except OSError:
+                pass
+
+
+def _env_truthy(raw: str | None, *, default: bool = False) -> bool:
+    if raw is None or raw == "":
+        return default
+    return raw.strip().lower() in {"1", "true", "yes"}
 
 
 def _harness_reachable(client: MvdE2eClient) -> bool:
@@ -132,6 +172,8 @@ def run_scenario(
     launch: bool = True,
     capture_snapshots: bool = True,
     expect_exit: bool = False,
+    extra_defines: list[str] | None = None,
+    extra_env: dict[str, str] | None = None,
 ) -> bool:
     """Run one case, append to the active report, return True on success.
 
@@ -168,7 +210,11 @@ def run_scenario(
                 except Exception:  # noqa: BLE001
                     snap_after = None
         else:
-            with launched_example(allow_exit=expect_exit) as (client, proc):
+            with launched_example(
+                allow_exit=expect_exit,
+                extra_defines=extra_defines,
+                extra_env=extra_env,
+            ) as (client, proc):
                 if capture_snapshots:
                     try:
                         snap_before = client.snapshot()

@@ -19,6 +19,23 @@ EXPECT_EXIT = frozenset(
     }
 )
 
+# Example defaults keep the macOS process in the dock (saveLast + !closeAfterLast).
+# Exit cases need the opposite so the harness can observe process death.
+MACOS_QUIT_DEFINES = [
+    "--dart-define=MVD_E2E_CLOSE_APP_AFTER_LAST=true",
+    "--dart-define=MVD_E2E_SAVE_LAST_WINDOW=false",
+]
+MACOS_QUIT_ENV = {
+    "MVD_E2E_CLOSE_APP_AFTER_LAST": "true",
+    "MVD_E2E_SAVE_LAST_WINDOW": "false",
+}
+
+
+def _launch_overrides(name: str) -> tuple[list[str] | None, dict[str, str] | None]:
+    if name in EXPECT_EXIT and sys.platform == "darwin":
+        return list(MACOS_QUIT_DEFINES), dict(MACOS_QUIT_ENV)
+    return None, None
+
 
 def soft_cascade_close_app(client: MvdE2eClient) -> None:
     client.set_close_mode("softCascade")
@@ -112,6 +129,7 @@ def main() -> None:
     ok = True
     for name in cases:
         expect_exit = name in EXPECT_EXIT
+        defines, env = _launch_overrides(name)
         ok = (
             run_scenario(
                 f"cascade:{name}",
@@ -120,6 +138,8 @@ def main() -> None:
                 launch=True if expect_exit else not args.no_launch,
                 capture_snapshots=not expect_exit,
                 expect_exit=expect_exit,
+                extra_defines=defines,
+                extra_env=env,
             )
             and ok
         )

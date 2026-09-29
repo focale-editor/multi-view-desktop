@@ -146,5 +146,6 @@ Map<String, Object?> windowStateMap(int viewId) {
     'fullScreen': win.isFullScreen(),
     'maximized': win.isMaximized(),
     'minimized': win.isMinimized(),
+    'visible': win.isVisible(),
   };
 }

@@ -47,6 +47,7 @@ python3 scenarios/test_window_options.py
 python3 scenarios/test_locked_params.py
 python3 scenarios/test_animations_settle.py
 python3 scenarios/test_cascade.py --case abort
+python3 scenarios/test_macos_platform_params.py
 ```
 
 **B. App already running** (fast iteration):
@@ -57,6 +58,18 @@ python3 scenarios/test_cascade.py --case abort
 python3 run_all.py --no-launch
 python3 scenarios/test_open_many_windows.py --no-launch --count 12
 ```
+
+### macOS platform params
+
+Example defaults keep the process in the dock after the last window:
+
+- `closeAppAfterLastWindowClosed: false`
+- `saveLastWindowToReopen: true`
+
+Cascade **exit** cases on macOS launch with the opposite via dart-define
+(`MVD_E2E_CLOSE_APP_AFTER_LAST=true`, `MVD_E2E_SAVE_LAST_WINDOW=false`).
+`test_macos_platform_params.py` covers stay-alive vs quit explicitly
+(skipped on non-darwin).
 
 ## RPC methods (default map)
 

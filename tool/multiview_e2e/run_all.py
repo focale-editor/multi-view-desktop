@@ -35,6 +35,7 @@ def main() -> int:
             "locked_params",
             "animations_settle",
             "cascade",
+            "macos_platform_params",
         ],
         help="Subset of suites",
     )
@@ -48,6 +49,7 @@ def main() -> int:
         "locked_params": ["test_locked_params.py", []],
         "animations_settle": ["test_animations_settle.py", []],
         "cascade": ["test_cascade.py", []],
+        "macos_platform_params": ["test_macos_platform_params.py", []],
     }
     selected = args.only or list(suites)
 

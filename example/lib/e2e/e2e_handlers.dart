@@ -192,6 +192,11 @@ Map<String, E2eHandler> buildExampleE2eHandlers(ExampleE2eHandlerDeps deps) {
             .where((e) => e.value.controller.isOpen)
             .map((e) => e.key)
             .toList(),
+        'macosParams': {
+          'closeAppAfterLastWindowClosed':
+              e2eCloseAppAfterLastWindowClosedFromEnvironment(),
+          'saveLastWindowToReopen': e2eSaveLastWindowToReopenFromEnvironment(),
+        },
       };
     },
 

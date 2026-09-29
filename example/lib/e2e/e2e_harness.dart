@@ -148,6 +148,68 @@ int e2ePortFromEnvironment({int fallback = 9876}) {
   return int.tryParse(raw) ?? fallback;
 }
 
+/// Example defaults: stay in dock after last window (macOS).
+///
+/// Cascade-exit E2E overrides via (in order):
+/// 1) JSON file from `--dart-define=MVD_E2E_MACOS_PARAMS_FILE=...`
+/// 2) process env `MVD_E2E_CLOSE_APP_AFTER_LAST` / `MVD_E2E_SAVE_LAST_WINDOW`
+/// 3) matching `--dart-define=...` (use unique `MVD_E2E_EPOCH` to bust cache)
+bool e2eCloseAppAfterLastWindowClosedFromEnvironment({
+  bool defaultValue = false,
+}) {
+  final fromFile = _macosParamFromFile('closeAppAfterLastWindowClosed');
+  if (fromFile != null) return fromFile;
+  final fromOs = Platform.environment['MVD_E2E_CLOSE_APP_AFTER_LAST'];
+  if (fromOs != null && fromOs.isNotEmpty) {
+    return _envFlag(fromOs);
+  }
+  const epoch = String.fromEnvironment('MVD_E2E_EPOCH', defaultValue: '');
+  final defined = bool.fromEnvironment(
+    'MVD_E2E_CLOSE_APP_AFTER_LAST',
+    defaultValue: defaultValue,
+  );
+  // Keep epoch live in the const graph so changing it invalidates the kernel.
+  return epoch == '__never_match_epoch__' ? defined : defined;
+}
+
+bool e2eSaveLastWindowToReopenFromEnvironment({bool defaultValue = true}) {
+  final fromFile = _macosParamFromFile('saveLastWindowToReopen');
+  if (fromFile != null) return fromFile;
+  final fromOs = Platform.environment['MVD_E2E_SAVE_LAST_WINDOW'];
+  if (fromOs != null && fromOs.isNotEmpty) {
+    return _envFlag(fromOs);
+  }
+  const epoch = String.fromEnvironment('MVD_E2E_EPOCH', defaultValue: '');
+  final defined = bool.fromEnvironment(
+    'MVD_E2E_SAVE_LAST_WINDOW',
+    defaultValue: defaultValue,
+  );
+  return epoch == '__never_match_epoch__' ? defined : defined;
+}
+
+bool _envFlag(String raw) {
+  final v = raw.trim().toLowerCase();
+  return v == 'true' || v == '1' || v == 'yes';
+}
+
+bool? _macosParamFromFile(String key) {
+  const path = String.fromEnvironment(
+    'MVD_E2E_MACOS_PARAMS_FILE',
+    defaultValue: '',
+  );
+  if (path.isEmpty) return null;
+  try {
+    final file = File(path);
+    if (!file.existsSync()) return null;
+    final map = jsonDecode(file.readAsStringSync()) as Map<String, dynamic>;
+    final value = map[key];
+    if (value is bool) return value;
+  } catch (_) {
+    return null;
+  }
+  return null;
+}
+
 /// Starts harness when enabled; returns `null` if disabled.
 ///
 /// [handlers] are supplied by the app (surface layer), not hard-coded here.
