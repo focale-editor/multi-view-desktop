@@ -1,4 +1,6 @@
-// Coordinates `CloseMode.softCascade` by waiting for each secondary window to finish closing.
+// Coordinates soft/force cascade waits per view id.
+// Independent window trees may close in parallel — abort/clear must not
+// complete waits that belong to another root.
 import 'dart:async';
 
 import 'package:multiview_desktop/src/log/mvd_log.dart';
@@ -12,22 +14,31 @@ class CascadeCloseService {
   // viewId -> completer: true = closed, false = cancelled (preventClose).
   final Map<int, Completer<bool>> _closeCompleters = {};
 
-  void clear() => _closeCompleters.clear();
-
-  /// Completes the cascade for `id` with `false` and clears pending completers.
-  void abort(int id) {
-    final completer = _closeCompleters[id];
-    if (completer == null || completer.isCompleted) return;
-    MvdLog.instance.info('close', 'CascadeCloseService.abort', {'realId': id});
-
-    completer.complete(false);
-    // Clear remaining completers so their future completion (e.g. user later
-    // closes those windows independently) does not re-trigger the cascade.
-    _closeCompleters.remove(id);
+  /// Drops all pending entries. Completes them with `false` so waiters do not hang.
+  void clear() {
     for (final c in _closeCompleters.values) {
       if (!c.isCompleted) c.complete(false);
     }
-    clear();
+    _closeCompleters.clear();
+  }
+
+  /// Completes only [id] with `false`. Other cascades keep waiting.
+  void abort(int id) {
+    MvdLog.instance.info('close', 'CascadeCloseService.abort', {
+      'realId': id,
+      'pending': _closeCompleters.keys.join(','),
+    });
+    final completer = _closeCompleters.remove(id);
+    if (completer != null && !completer.isCompleted) {
+      completer.complete(false);
+    }
+  }
+
+  /// Completes every id in [ids] with `false` (one subtree / parent chain).
+  void abortIds(Iterable<int> ids) {
+    for (final id in ids) {
+      abort(id);
+    }
   }
 
   /// Registers `id` as the next window in a cascade close sequence.

@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:multiview_desktop/multiview_desktop.dart';
 import 'package:multiview_desktop/src/lifecycle/view_create_completer.dart';
@@ -227,11 +229,22 @@ void main() {
       h.seedWindow(1);
       h.seedDialog(10, parentId: 1, isModal: true);
 
-      expect(await h.closeService.closeView(10, dialogRes: 'ok'), isTrue);
+      if (Platform.isMacOS) {
+        expect(await h.closeService.closeView(10, dialogRes: 'ok'), isTrue);
+        expect(h.ffi.callsFor('destroyModalDialog'), ['destroyModalDialog:10']);
+        expect(h.disposed, [10]);
+      } else {
+        // Non-macOS modal dialogs go through soft-close + wait.
+        final future = h.closeService.closeView(10, dialogRes: 'ok');
+        await Future<void>.delayed(Duration.zero);
+        expect(h.ffi.hasCall('softCloseWindow:10'), isTrue);
+        h.completeClose(10);
+        expect(await future, isTrue);
+        await h.closeService.handleLastCloseStep(10);
+        expect(h.disposed, contains(10));
+      }
 
       expect(h.dialogResults, [(10, 'ok')]);
-      expect(h.disposed, [10]);
-      expect(h.ffi.callsFor('destroyModalDialog'), ['destroyModalDialog:10']);
     });
 
     test('destroyPopup ignores non-popups and destroys popups', () {

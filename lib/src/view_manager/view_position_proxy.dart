@@ -131,10 +131,13 @@ class ViewPositionProxy extends ViewNativeProxy {
 
     final current = getSize(viewId);
     final target = _sizeConstraints.sizeLockedToAspectRatio(current, ratio, minSize: minTempSize, maxSize: maxTempSize);
-    if (target == current || target.width < 0 || target.height < 0) return false;
+    if (target.width < 0 || target.height < 0) return false;
 
-    final resized = await setSize(viewId, target);
-    if (!resized) return false;
+    // Still apply the lock when the frame already matches the ratio.
+    if (target != current) {
+      final resized = await setSize(viewId, target);
+      if (!resized) return false;
+    }
 
     call(viewId, () => ffi.setAspectRatio(viewId, ratio), dialogSupports: true);
 

@@ -201,10 +201,20 @@ class MvdE2eClient:
     def set_close_mode(self, mode: str) -> str:
         return str(self.call("set_close_mode", mode=mode)["closeMode"])
 
-    def close_app(self, mode: str | None = None) -> bool:
+    def close_app(
+        self,
+        mode: str | None = None,
+        *,
+        confirm_close: bool | None = None,
+        confirm_timeout_ms: int | None = None,
+    ) -> bool:
         params: dict[str, Any] = {}
         if mode is not None:
             params["mode"] = mode
+        if confirm_close is not None:
+            params["confirmClose"] = confirm_close
+        if confirm_timeout_ms is not None:
+            params["confirmTimeoutMs"] = confirm_timeout_ms
         return bool(self.call("close_app", **params)["allClosed"])
 
     def set_prevent_close(self, view_id: int, value: bool) -> None:

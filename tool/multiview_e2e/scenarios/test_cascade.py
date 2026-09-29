@@ -10,6 +10,15 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from mvd_e2e import MvdE2eClient, begin_report, finalize_and_exit, run_scenario  # noqa: E402
 
+# Cases that tear down the whole app — exit is the success signal.
+EXPECT_EXIT = frozenset(
+    {
+        "soft_cascade_app",
+        "destroy",
+        "primary_with_secondaries",
+    }
+)
+
 
 def soft_cascade_close_app(client: MvdE2eClient) -> None:
     client.set_close_mode("softCascade")
@@ -17,26 +26,42 @@ def soft_cascade_close_app(client: MvdE2eClient) -> None:
     assert len(ids) == 3
     ok = client.close_app(mode="softCascade")
     assert isinstance(ok, bool)
-    try:
-        client.assert_alive()
-    except Exception:
-        pass
 
 
 def force_secondary(client: MvdE2eClient) -> None:
+    """forceSecondary force-closes children; preventClose primary soft-close → Cancel keeps app."""
+    primary = client.primary_window_id()
     client.set_close_mode("forceSecondary")
-    ids = client.create_windows(4)
-    primary = client.snapshot()["windows"][0]
-    ok = client.close_app(mode="forceSecondary")
-    assert isinstance(ok, bool)
-    try:
-        snap = client.snapshot()
-        for view_id in ids:
-            assert view_id not in snap.get("windows", [])
-        assert primary in snap.get("windows", []) or ok
-        client.assert_alive()
-    except Exception:
-        pass
+    client.set_prevent_close(primary, True)
+
+    children = [
+        client.create_window(
+            title=f"force-sec-{i}",
+            parentId=primary,
+            width=420,
+            height=320,
+            content="plain",
+        )
+        for i in range(3)
+    ]
+    assert len(children) == 3
+    for child_id in children:
+        assert child_id in client.snapshot()["windows"]
+
+    # Force-close descendants, then soft-close primary → ConfirmDialog Cancel.
+    # Timeout must cover force-closing every child before the primary dialog appears.
+    closed_all = client.close_app(
+        mode="forceSecondary",
+        confirm_close=False,
+        confirm_timeout_ms=30000,
+    )
+    assert closed_all is False
+
+    snap = client.snapshot()
+    for child_id in children:
+        assert child_id not in snap["windows"], snap
+    assert primary in snap["windows"], snap
+    client.assert_alive()
 
 
 def destroy_mode(client: MvdE2eClient) -> None:
@@ -59,19 +84,13 @@ def cascade_abort(client: MvdE2eClient) -> None:
 
 
 def close_primary_with_secondaries(client: MvdE2eClient) -> None:
+    """Closing primary under softCascade tears down secondaries and the app."""
     client.set_close_mode("softCascade")
     ids = client.create_windows(3)
+    assert len(ids) == 3
     primary = int(client.snapshot()["windows"][0])
+    # Soft-close of primary may reset the socket mid-RPC as the process exits.
     client.close_window(primary)
-    client.wait_ms(800)
-    try:
-        snap = client.snapshot()
-        for view_id in ids:
-            _ = view_id
-        client.assert_alive()
-        assert isinstance(snap["windows"], list)
-    except Exception:
-        pass
 
 
 SCENARIOS = {
@@ -92,13 +111,15 @@ def main() -> None:
     cases = list(SCENARIOS) if args.case == "all" else [args.case]
     ok = True
     for name in cases:
+        expect_exit = name in EXPECT_EXIT
         ok = (
             run_scenario(
                 f"cascade:{name}",
                 SCENARIOS[name],
-                launch=not args.no_launch,
-                # close_app may kill the process; snapshots after can fail noisily
-                capture_snapshots=name not in {"soft_cascade_app", "force_secondary", "destroy"},
+                # Exit cases need a fresh process; --no-launch cannot revive a dead app.
+                launch=True if expect_exit else not args.no_launch,
+                capture_snapshots=not expect_exit,
+                expect_exit=expect_exit,
             )
             and ok
         )

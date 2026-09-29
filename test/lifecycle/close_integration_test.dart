@@ -148,6 +148,41 @@ void main() {
       expect(h.disposed, contains(1));
     });
 
+    test('aborting one independent root leaves a parallel root cascade pending', () async {
+      final h = LifecycleTestHarness();
+      // Two independent trees: 1→2 and 10→11
+      h.seedWindow(1);
+      h.seedWindow(2, parentId: 1);
+      h.seedWindow(10);
+      h.seedWindow(11, parentId: 10);
+
+      h.cascade.attachWindow(1);
+      h.cascade.attachWindow(10);
+      final waitTree1 = h.cascade.waitWindow(1);
+      final waitTree10 = h.cascade.waitWindow(10);
+
+      final close1 = h.closeService.closeSubtreeByMode(1, CloseMode.softCascade);
+      await Future<void>.delayed(Duration.zero);
+      // Cancel close of tree 1 while tree 10 is still pending.
+      h.closeService.cancelCascade(2);
+      await close1;
+
+      expect(await waitTree1, isFalse);
+      expect(h.ffi.hasCall('setPreConfirmClose:1:true'), isFalse);
+
+      // Parallel tree must still be waitable / closable.
+      final close10 = h.closeService.closeSubtreeByMode(10, CloseMode.softCascade);
+      await Future<void>.delayed(Duration.zero);
+      expect(h.ffi.callsFor('softCloseWindow').last, 'softCloseWindow:11');
+      h.registry.windows.remove(11);
+      h.completeClose(11);
+      await Future<void>.delayed(Duration.zero);
+      h.completeClose(10);
+      await close10;
+      expect(await waitTree10, isTrue);
+      expect(h.ffi.hasCall('setPreConfirmClose:10:true'), isTrue);
+    });
+
     test('anchor promotion closes sibling roots before the closing anchor', () async {
       final h = LifecycleTestHarness(enableDynamicAnchor: false);
       h.seedWindow(1);

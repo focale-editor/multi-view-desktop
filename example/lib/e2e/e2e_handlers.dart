@@ -322,8 +322,63 @@ Map<String, E2eHandler> buildExampleE2eHandlers(ExampleE2eHandlerDeps deps) {
       if (name != null) {
         mode = CloseMode.values.firstWhere((m) => m.name == name);
       }
-      final ok = await MultiViewDesktop.closeApp(closeMode: mode);
-      return {'allClosed': ok};
+      // Same as softCloseView: answer HomePage ConfirmDialog while closeApp awaits
+      // soft-close of a preventClose root (e.g. forceSecondary → soft-close primary).
+      final confirmClose = req.optional<bool>('confirmClose');
+      final confirmTimeoutMs =
+          req.optional<num>('confirmTimeoutMs')?.toInt() ?? 8000;
+      final dialogsBefore = MultiViewDesktop.allDialogViewsIds.toSet();
+      final pending = MultiViewDesktop.closeApp(closeMode: mode);
+
+      var confirmAnswered = false;
+      if (confirmClose != null) {
+        confirmAnswered = await answerPreventCloseConfirm(
+          accept: confirmClose,
+          dialogsBefore: dialogsBefore,
+          timeoutMs: confirmTimeoutMs,
+        );
+        if (!confirmAnswered) {
+          for (final id in List<int>.from(MultiViewDesktop.allWindowViewIds)) {
+            MultiViewDesktop.fromId(id).cancelCascadeClose();
+          }
+          throw StateError(
+            'Prevent-close ConfirmDialog did not appear within '
+            '${confirmTimeoutMs}ms during close_app. '
+            'Set preventClose on the primary and pass confirmClose:true|false.',
+          );
+        }
+        // HomePage Cancel leaves cancelCascadeClose commented out; return false
+        // from onWindowClose should abort, but after forceSecondary the root wait
+        // can stay pending — abort explicitly so closeApp can finish.
+        if (confirmClose == false) {
+          for (final id in List<int>.from(MultiViewDesktop.allWindowViewIds)) {
+            MultiViewDesktop.fromId(id).cancelCascadeClose();
+          }
+        }
+      }
+
+      final ok = await pending.timeout(
+        Duration(milliseconds: confirmTimeoutMs + 15000),
+        onTimeout: () {
+          for (final id in List<int>.from(MultiViewDesktop.allDialogViewsIds)) {
+            if (!dialogsBefore.contains(id)) {
+              unawaited(MultiViewDesktop.fromId(id).closeDialog<bool>(false));
+            }
+          }
+          for (final id in List<int>.from(MultiViewDesktop.allWindowViewIds)) {
+            MultiViewDesktop.fromId(id).cancelCascadeClose();
+          }
+          throw TimeoutException(
+            'close_app timed out. If a preventClose ConfirmDialog is shown, '
+            'pass confirmClose:true|false.',
+          );
+        },
+      );
+      return {
+        'allClosed': ok,
+        if (confirmClose != null) 'confirmClose': confirmClose,
+        if (confirmClose != null) 'confirmAnswered': confirmAnswered,
+      };
     },
 
     'cancel_cascade': (req) async {

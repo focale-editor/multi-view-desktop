@@ -144,6 +144,21 @@ class ViewCloseService {
     }
   }
 
+  /// Release waits for [rootId] and its current descendants only.
+  /// Does not touch pending closes of sibling / unrelated roots.
+  void _abortSubtreeWaits(int rootId) {
+    cascadeCloseService.abortIds([
+      rootId,
+      ...registry.descendantWindowIdsDeepestFirst(rootId),
+    ]);
+  }
+
+  /// Drop stale descendant waits for this tree before force/destroy cycles.
+  /// Keeps [rootId] (attached by closeApp / first-close-step).
+  void _clearStaleDescendantWaits(int rootId) {
+    cascadeCloseService.abortIds(registry.descendantWindowIdsDeepestFirst(rootId));
+  }
+
   Future<bool> closeView<T>(int viewId, {T? dialogRes}) async {
     final isDialog = registry.isDialog(viewId);
     if (isDialog) {
@@ -256,6 +271,7 @@ class ViewCloseService {
       final closed = wait == null ? false : await wait;
       if (!closed) {
         MvdLog.instance.warn('close', 'cascade aborted on descendant', {'realId': id, 'rootId': rootId});
+        _abortSubtreeWaits(rootId);
         return;
       }
       if (!registry.isWindow(rootId)) {
@@ -271,51 +287,92 @@ class ViewCloseService {
         'rootId': rootId,
         'remaining': registry.descendantWindowIdsDeepestFirst(rootId).join(','),
       });
+      // Do not soft-close root while children remain; release only this subtree's waits.
+      _abortSubtreeWaits(rootId);
       return;
     }
 
     delegate.invoke<void>(rootId, () => _preConfirmCloseCallable(rootId), dialogSupports: true);
   }
 
-  Future<void> _removeSecondaryViewsForce(int rootId, {int loopCycle = 1, int maxLoopCycles = 10}) async {
-    cascadeCloseService.clear();
-    final descendants = registry.descendantWindowIdsDeepestFirst(rootId).toList()..sort();
-    for (final id in descendants.reversed) {
-      final wait = delegate.invoke<Future<bool>>(id, () {
-        cascadeCloseService.attachWindow(id);
-        ffi.forceCloseView(id);
-        return cascadeCloseService.waitWindow(id);
+  Future<void> _removeSecondaryViewsForce(int rootId, {int maxLoopCycles = 10}) async {
+    // Keep the root completer attached by closeApp / handeFirstCloseStep.
+    _clearStaleDescendantWaits(rootId);
+
+    for (var cycle = 1; cycle <= maxLoopCycles; cycle++) {
+      final descendants = registry.descendantWindowIdsDeepestFirst(rootId).toList()..sort();
+      if (descendants.isEmpty) break;
+
+      MvdLog.instance.info('close', 'forceSecondary cycle', {
+        'rootId': rootId,
+        'cycle': cycle,
+        'descendants': descendants.reversed.join(','),
       });
-      final closed = wait == null ? false : await wait;
-      if (!closed) return;
+
+      for (final id in descendants.reversed) {
+        if (!registry.isWindow(id)) continue;
+        final wait = delegate.invoke<Future<bool>>(id, () {
+          cascadeCloseService.attachWindow(id);
+          ffi.forceCloseView(id);
+          return cascadeCloseService.waitWindow(id);
+        });
+        final closed = wait == null ? false : await wait;
+        if (!closed) {
+          _abortSubtreeWaits(rootId);
+          return;
+        }
+      }
     }
 
-    if (loopCycle < maxLoopCycles && registry.descendantWindowIdsDeepestFirst(rootId).isNotEmpty) {
-      unawaited(_removeSecondaryViewsForce(rootId, loopCycle: loopCycle + 1));
-      return;
+    if (registry.descendantWindowIdsDeepestFirst(rootId).isNotEmpty) {
+      MvdLog.instance.warn('close', 'forceSecondary: descendants remain before root soft-close', {
+        'rootId': rootId,
+        'remaining': registry.descendantWindowIdsDeepestFirst(rootId).join(','),
+      });
     }
 
+    // Always soft-close the root after force-closing secondaries (preventClose may
+    // show a confirm dialog and abort — that is handled by waitWindow on the root).
     delegate.invoke<void>(rootId, () => _preConfirmCloseCallable(rootId), dialogSupports: true);
   }
 
-  Future<void> _destroyAllViewsForce(int rootId, {int loopCycle = 1, int maxLoopCycles = 10}) async {
-    cascadeCloseService.clear();
-    final descendants = registry.descendantWindowIdsDeepestFirst(rootId).toList()..sort();
-    for (final id in descendants.reversed) {
-      final wait = delegate.invoke<Future<bool>>(id, () {
-        cascadeCloseService.attachWindow(id);
-        ffi.forceCloseView(id);
-        return cascadeCloseService.waitWindow(id);
+  Future<void> _destroyAllViewsForce(int rootId, {int maxLoopCycles = 10}) async {
+    // Same contract as forceSecondary: never wipe waits of parallel roots.
+    _clearStaleDescendantWaits(rootId);
+
+    for (var cycle = 1; cycle <= maxLoopCycles; cycle++) {
+      final descendants = registry.descendantWindowIdsDeepestFirst(rootId).toList()..sort();
+      if (descendants.isEmpty) break;
+
+      MvdLog.instance.info('close', 'destroy cycle', {
+        'rootId': rootId,
+        'cycle': cycle,
+        'descendants': descendants.reversed.join(','),
       });
-      final closed = wait == null ? false : await wait;
-      if (!closed) return;
+
+      for (final id in descendants.reversed) {
+        if (!registry.isWindow(id)) continue;
+        final wait = delegate.invoke<Future<bool>>(id, () {
+          cascadeCloseService.attachWindow(id);
+          ffi.forceCloseView(id);
+          return cascadeCloseService.waitWindow(id);
+        });
+        final closed = wait == null ? false : await wait;
+        if (!closed) {
+          _abortSubtreeWaits(rootId);
+          return;
+        }
+      }
     }
 
-    if (loopCycle < maxLoopCycles && registry.descendantWindowIdsDeepestFirst(rootId).isNotEmpty) {
-      unawaited(_destroyAllViewsForce(rootId, loopCycle: loopCycle + 1));
-      return;
+    if (registry.descendantWindowIdsDeepestFirst(rootId).isNotEmpty) {
+      MvdLog.instance.warn('close', 'destroy: descendants remain before root force-close', {
+        'rootId': rootId,
+        'remaining': registry.descendantWindowIdsDeepestFirst(rootId).join(','),
+      });
     }
 
+    // Always force-close the root after descendants (mirrors forceSecondary soft-close).
     delegate.invoke<void>(rootId, () => _preConfirmCloseCallable(rootId, isForce: true), dialogSupports: true);
   }
 

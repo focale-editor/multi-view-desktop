@@ -3,10 +3,10 @@ import 'package:multiview_desktop/multiview_desktop.dart';
 
 void main() {
   group('MultiAppConfig', () {
-    test('defaultParams uses softCascade close mode and dynamic anchor', () {
+    test('defaultParams uses softCascade close mode and static default anchor', () {
       final params = MultiPlatformParams.defaultParams();
 
-      expect(params.enableDynamicAnchor, isTrue);
+      expect(params.enableDynamicAnchor, isFalse);
       expect(params.closeMode, CloseMode.softCascade);
       expect(params.menuItems, isEmpty);
     });
