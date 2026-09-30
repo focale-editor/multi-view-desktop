@@ -121,7 +121,7 @@ Future<void> main() async {
         titleBarStyle: TitleBarStyle.normal,
         windowButtonVisibility: true,
         title: 'Window 1',
-        backgroundColor: Colors.white,
+        backgroundColor: Colors.transparent,
       ),
       globalDialogOptions: DialogOptions(modal: false, windowButtonVisibility: true),
       observers: [AppWindowObserver()],

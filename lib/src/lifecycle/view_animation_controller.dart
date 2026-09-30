@@ -146,6 +146,7 @@ class ViewAnimationController {
     proxies.appearance.setOpacity(viewId, 0);
     proxies.state.show(viewId);
 
+    final resDuration = forceOverride?.duration ?? softOverride?.duration ?? policy.openDuration;
     await _animator.animate(
       onValue: (value) {
         if (!_isCurrentAnimation(viewId, generation)) return;
@@ -153,7 +154,7 @@ class ViewAnimationController {
       },
       from: 0,
       to: 1,
-      duration: forceOverride?.duration ?? softOverride?.duration ?? policy.openDuration,
+      duration: resDuration,
       curve: forceOverride?.curve ?? softOverride?.curve ?? policy.curve,
       fps: forceOverride?.fps ?? softOverride?.fps ?? policy.fps,
       isCurrent: () => _isCurrentAnimation(viewId, generation),

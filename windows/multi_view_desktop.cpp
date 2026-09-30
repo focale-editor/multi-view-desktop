@@ -98,15 +98,6 @@ namespace {
 
 constexpr const wchar_t kWindowClassName[] = L"FLUTTER_RUNNER_WIN32_WINDOW";
 
-/// Registry key for app theme preference.
-///
-/// A value of 0 indicates apps should use dark mode. A non-zero or missing
-/// value indicates apps should use light mode.
-constexpr const wchar_t kGetPreferredBrightnessRegKey[] =
-        L"Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize";
-constexpr const wchar_t kGetPreferredBrightnessRegValue[] =
-        L"AppsUseLightTheme";
-
 #define APPBAR_CALLBACK WM_USER + 0x01;
 
 constexpr const wchar_t kFlutterViewWindowClassName[] = L"FLUTTERVIEW";
@@ -1344,13 +1335,6 @@ void MultiViewDesktop::SetFullScreen(const flutter::EncodableMap &args) {
             std::get<bool>(args.at(flutter::EncodableValue("isFullScreen")));
 
     HWND mainWindow = GetMainWindow();
-
-    // Previously inspired by how Chromium does this
-    // https://src.chromium.org/viewvc/chrome/trunk/src/ui/views/win/fullscreen_handler.cc?revision=247204&view=markup
-    // Instead, we use a modified implementation of how the media_kit package
-    // implements this (we got permission from the author, I believe)
-    // https://github.com/alexmercerind/media_kit/blob/1226bcff36eab27cb17d60c33e9c15ca489c1f06/media_kit_video/windows/utils.cc
-
     // Save current window state if not already fullscreen.
     if (!g_is_window_fullscreen) {
         // Save current window information.
@@ -1420,8 +1404,14 @@ void MultiViewDesktop::ApplyWindowComposition() {
     if (!hWnd) {
         return;
     }
+
     const bool isTransparent = background_a_ == 0 && background_r_ == 0 &&
                                background_g_ == 0 && background_b_ == 0;
+    const bool has_caption =
+            (GetWindowLong(hWnd, GWL_STYLE) & WS_CAPTION) != 0;
+    const bool use_accent =
+            is_popup_ || !has_caption || title_bar_style_ == "hidden";
+
     const HINSTANCE hModule = LoadLibrary(TEXT("user32.dll"));
     if (!hModule) {
         return;
@@ -1452,17 +1442,32 @@ void MultiViewDesktop::ApplyWindowComposition() {
             (pSetWindowCompositionAttribute) GetProcAddress(
                     hModule, "SetWindowCompositionAttribute");
     if (SetWindowCompositionAttribute) {
-        int32_t accent_state = isTransparent ? ACCENT_ENABLE_TRANSPARENTGRADIENT
-                                             : ACCENT_ENABLE_GRADIENT;
-        ACCENTPOLICY policy = {
-                accent_state, 2,
-                ((background_a_ << 24) + (background_b_ << 16) +
-                 (background_g_ << 8) + background_r_),
-                0};
+        int32_t accent_state = ACCENT_DISABLED;
+        int32_t accent_color = 0;
+        if (use_accent) {
+            accent_state = isTransparent ? ACCENT_ENABLE_TRANSPARENTGRADIENT
+                                         : ACCENT_ENABLE_GRADIENT;
+            accent_color = ((background_a_ << 24) + (background_b_ << 16) +
+                            (background_g_ << 8) + background_r_);
+        }
+        ACCENTPOLICY policy = {accent_state, 2, accent_color, 0};
         WINCOMPATTRDATA data = {19, &policy, sizeof(policy)};
         SetWindowCompositionAttribute(hWnd, &data);
     }
     FreeLibrary(hModule);
+}
+
+void MultiViewDesktop::SetBrightness(const flutter::EncodableMap &args) {
+    HWND hWnd = GetMainWindow();
+    if (!hWnd) {
+        return;
+    }
+
+    const std::string brightness =
+            std::get<std::string>(args.at(flutter::EncodableValue("brightness")));
+    const BOOL enable_dark_mode = brightness == "dark" ? TRUE : FALSE;
+    DwmSetWindowAttribute(hWnd, DWMWA_USE_IMMERSIVE_DARK_MODE,
+                          &enable_dark_mode, sizeof(enable_dark_mode));
 }
 
 void MultiViewDesktop::ApplyPopupShadowAndColor() {
@@ -1801,24 +1806,6 @@ void MultiViewDesktop::SetOpacity(const flutter::EncodableMap &args) {
     SetWindowLong(hWnd, GWL_EXSTYLE, ex_style & ~WS_EX_LAYERED);
     if (is_popup_) {
         ApplyPopupShadowAndColor();
-    }
-}
-
-void MultiViewDesktop::SetBrightness(const flutter::EncodableMap &args) {
-    DWORD light_mode;
-    DWORD light_mode_size = sizeof(light_mode);
-    LSTATUS result =
-            RegGetValue(HKEY_CURRENT_USER, kGetPreferredBrightnessRegKey,
-                        kGetPreferredBrightnessRegValue, RRF_RT_REG_DWORD, nullptr,
-                        &light_mode, &light_mode_size);
-
-    if (result == ERROR_SUCCESS) {
-        std::string brightness =
-                std::get<std::string>(args.at(flutter::EncodableValue("brightness")));
-        HWND hWnd = GetMainWindow();
-        BOOL enable_dark_mode = light_mode == 0 && brightness == "dark";
-        DwmSetWindowAttribute(hWnd, DWMWA_USE_IMMERSIVE_DARK_MODE,
-                              &enable_dark_mode, sizeof(enable_dark_mode));
     }
 }
 

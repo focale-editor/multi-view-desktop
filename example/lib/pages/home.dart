@@ -459,8 +459,8 @@ class _HomePageState extends State<HomePage> with WindowListener {
                   onTap: () async {
                     final openRes = await openWindow(
                       (ctx, viewId) {
-                        final mvd = MultiViewDesktop.fromId(viewId);
-                        Future.delayed(Duration(seconds: 2), () => mvd.completeShow());
+                        // final mvd = MultiViewDesktop.fromId(viewId);
+                        // Future.delayed(Duration(seconds: 2), () => mvd.completeShow());
                         // mvd.setForceAnimation(
                         //   ViewAnimationType.closeWindow,
                         //   AnimationSettings(duration: Duration(milliseconds: 250)),
@@ -476,9 +476,8 @@ class _HomePageState extends State<HomePage> with WindowListener {
                         // alwaysOnTop: true,
                         maximumSize: const Size(10000, 10000),
                       ),
-                      // animation: AnimationSettings(duration: Duration(seconds: 1)),
+                      animation: AnimationSettings(duration: Duration(milliseconds: 250)),
                     );
-                    debugPrint('Window $openRes opened');
                   },
                 ),
                 if (!windowInfo.isDialog) ...[

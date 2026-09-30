@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:ui' show Offset, Size;
 
 import 'package:flutter/material.dart';
 
@@ -85,10 +84,11 @@ abstract class ViewOwnerBase {
     }
 
     await waitFirstFrame(viewId);
-    await showWithFadeIn(viewId);
+    final res = showWithFadeIn(viewId);
     if (isFullScreen) {
       host.proxies.state.setFullScreen(viewId, isFullScreen);
     }
+    await res;
   }
 
   int createNativeWindow({required WindowOptions opts, int? parentId}) {
