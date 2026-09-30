@@ -46,9 +46,15 @@ python3 scenarios/test_dialogs_popups.py --case popup
 python3 scenarios/test_window_options.py
 python3 scenarios/test_locked_params.py
 python3 scenarios/test_animations_settle.py
+python3 scenarios/test_anim_speed_matrix.py --count 12
+python3 scenarios/test_anim_speed_matrix.py --anim-ms 100 --count 12
 python3 scenarios/test_cascade.py --case abort
 python3 scenarios/test_macos_platform_params.py
 ```
+
+`test_anim_speed_matrix.py` opens/closes N windows (default 12) for each
+`animationMs` in `100, 600, …, 4600, 5000` (step 500ms from 100 up to 5s).
+The full matrix is slow; use `--anim-ms` for a single step.
 
 **B. App already running** (fast iteration):
 

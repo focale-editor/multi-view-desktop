@@ -176,6 +176,13 @@ static gboolean on_delete(GtkWidget* widget, GdkEvent*, gpointer data) {
   MVD_LOG("on_delete  START  viewId=%" G_GINT64_FORMAT "  widget=%p",
           view_id, static_cast<void*>(widget));
 
+  if (g_object_get_data(G_OBJECT(widget), "mvd-safe-destroy")) {
+    MVD_LOG("on_delete  viewId=%" G_GINT64_FORMAT
+            "  safe destroy already scheduled, returning TRUE",
+            view_id);
+    return TRUE;
+  }
+
   auto wm = MvdLinuxWindow::Find(view_id);
   if (!wm) {
     MVD_LOG("on_delete  viewId=%" G_GINT64_FORMAT
@@ -204,24 +211,10 @@ static gboolean on_delete(GtkWidget* widget, GdkEvent*, gpointer data) {
     MVD_LOG("on_delete  viewId=%" G_GINT64_FORMAT
             "  is_popup=true, skipping soft-close", view_id);
     emit_event("popup-closed", view_id);
+    wm->Hide();
+    FlView* fl_view = wm->view;
     MvdLinuxWindow::Unregister(view_id);
-    gtk_widget_hide(widget);
-    g_object_ref(widget);
-    struct DeferredCtx {
-      GtkWidget* widget;
-      bool       should_quit;
-      int64_t    view_id;
-    };
-    auto* ctx = new DeferredCtx{widget, false, view_id};
-    g_timeout_add(
-        100,
-        [](gpointer data) -> gboolean {
-          std::unique_ptr<DeferredCtx> c(static_cast<DeferredCtx*>(data));
-          gtk_widget_destroy(c->widget);
-          g_object_unref(c->widget);
-          return G_SOURCE_REMOVE;
-        },
-        ctx);
+    MvdLinuxWindow::ScheduleSafeDestroy(GTK_WINDOW(widget), fl_view, false);
     return TRUE;
   }
 
@@ -256,6 +249,8 @@ static gboolean on_delete(GtkWidget* widget, GdkEvent*, gpointer data) {
           view_id, static_cast<int>(was_modal), owner_id);
   emit_event("close", view_id);
 
+  wm->Hide();
+  FlView* fl_view = wm->view;
   MVD_LOG("on_delete  viewId=%" G_GINT64_FORMAT
           "  calling Unregister (shared_ptr refcount before erase=%ld)",
           view_id, wm.use_count());
@@ -297,80 +292,10 @@ static gboolean on_delete(GtkWidget* widget, GdkEvent*, gpointer data) {
     return false;
   }();
 
-  // Deferred destroy - the root of the X11/GLX crash.
-  //
-  // Problem: returning FALSE from delete-event lets GTK destroy the GtkWindow
-  // immediately and synchronously.  The underlying X11 XID is freed on this
-  // thread, but Flutter's raster thread (running at 60 fps) still has frames
-  // queued for this view.  It calls glXMakeCurrent / glXSwapBuffers on the
-  // now-dead XID -> the GLX call returns False -> Flutter's FML_CHECK aborts.
-  // Suppressing the X11 error notification alone is not enough because the
-  // GLX API return value (False) still triggers Flutter's internal fatal check.
-  //
-  // Fix: return TRUE (block GTK's immediate destroy), hide the window for
-  // instant visual feedback, then schedule gtk_widget_destroy 100 ms later.
-  //
-  // During those 100 ms:
-  //   - Dart processes the 'close' event and removes the view from the widget
-  //     tree (~1-2 frames, <=32 ms).
-  //   - Flutter's framework marks nothing dirty for this now-empty view, so
-  //     the raster thread stops generating frames for it.
-  //   - By the time gtk_widget_destroy fires, the raster thread is idle for
-  //     this view -> fl_view_dispose -> FlutterEngineRemoveView runs cleanly
-  //     with no pending GL work -> GLX surface properly destroyed before the
-  //     X11 XID is freed -> no race, no crash.
-  //
-  // The X11 error handler installed in runner_install() remains as a safety
-  // net for any residual errors from frames that were already in flight.
+  MvdLinuxWindow::ScheduleSafeDestroy(GTK_WINDOW(widget), fl_view, should_quit);
 
   MVD_LOG("on_delete  viewId=%" G_GINT64_FORMAT
-          "  hiding window immediately (visual feedback)  widget=%p",
-          view_id, static_cast<void*>(widget));
-  gtk_widget_hide(widget);
-
-  // Hold an extra GObject ref so the window stays alive through the timer.
-  g_object_ref(widget);
-
-  struct DeferredCtx {
-    GtkWidget* widget;
-    bool       should_quit;
-    int64_t    view_id;   // for logging only
-  };
-  auto* ctx = new DeferredCtx{widget, should_quit, view_id};
-
-  MVD_LOG("on_delete  viewId=%" G_GINT64_FORMAT
-          "  scheduling deferred gtk_widget_destroy in 100 ms  widget=%p"
-          "  should_quit=%d",
-          view_id, static_cast<void*>(widget),
-          static_cast<int>(should_quit));
-
-  g_timeout_add(
-      100,  // ms - 6+ Flutter frames; enough for Dart to clear the view tree
-      [](gpointer data) -> gboolean {
-        std::unique_ptr<DeferredCtx> c(static_cast<DeferredCtx*>(data));
-        MVD_LOG("on_delete  deferred_destroy_cb  viewId=%" G_GINT64_FORMAT
-                "  calling gtk_widget_destroy  widget=%p",
-                c->view_id, static_cast<void*>(c->widget));
-        gtk_widget_destroy(c->widget);
-        MVD_LOG("on_delete  deferred_destroy_cb  viewId=%" G_GINT64_FORMAT
-                "  gtk_widget_destroy returned  releasing extra GObject ref",
-                c->view_id);
-        g_object_unref(c->widget);  // release the ref we took before the timer
-        if (c->should_quit) {
-          GApplication* app = g_application_get_default();
-          MVD_LOG("on_delete  deferred_destroy_cb  viewId=%" G_GINT64_FORMAT
-                  "  last window closed, calling g_application_quit  app=%p",
-                  c->view_id, static_cast<void*>(app));
-          if (app) {
-            g_application_quit(app);
-          }
-        }
-        return G_SOURCE_REMOVE;
-      },
-      ctx);
-
-  MVD_LOG("on_delete  viewId=%" G_GINT64_FORMAT
-          "  returning TRUE (deferred destroy scheduled, GTK immediate destroy blocked)",
+          "  returning TRUE (safe destroy scheduled, GTK immediate destroy blocked)",
           view_id);
   return TRUE;
 }
@@ -548,6 +473,7 @@ static int64_t create_modal_dialog_impl(const DialogCreateParams& params) {
     gtk_window_set_modal(window, FALSE);
   }
 
+  MvdLinuxWindow::WaitUntilSafeToCreateView();
   FlView* view = fl_view_new_for_engine(engine);
   GdkRGBA background_color;
   gdk_rgba_parse(&background_color, "#000000");
@@ -628,6 +554,7 @@ static int64_t create_popup_window_impl(const PopupCreateParams& params) {
   gtk_window_set_accept_focus(window, FALSE);
   gtk_window_set_position(window, GTK_WIN_POS_NONE);
 
+  MvdLinuxWindow::WaitUntilSafeToCreateView();
   FlView* view = fl_view_new_for_engine(engine);
   GdkRGBA background_color;
   gdk_rgba_parse(&background_color, "#000000");

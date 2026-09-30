@@ -198,6 +198,7 @@ static int64_t create_secondary_window(const MvdCreateWindowRequest* request) {
                     static_cast<int>(request->pos_y));
   }
 
+  MvdLinuxWindow::WaitUntilSafeToCreateView();
   MVD_LOG("create_secondary_window  calling fl_view_new_for_engine"
           "  engine=%p", static_cast<void*>(g_shared_engine));
   FlView* view = fl_view_new_for_engine(g_shared_engine);

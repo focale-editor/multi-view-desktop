@@ -22,5 +22,11 @@ add_definitions(-DAPPLICATION_ID="${APPLICATION_ID}")
 # Add dependency libraries. Add any application-specific dependencies here.
 target_link_libraries(${BINARY_NAME} PRIVATE flutter)
 target_link_libraries(${BINARY_NAME} PRIVATE PkgConfig::GTK)
+# XInitThreads() in main.cc (X11 multi-thread safety for Flutter raster).
+find_package(X11)
+if(X11_FOUND)
+  target_link_libraries(${BINARY_NAME} PRIVATE ${X11_LIBRARIES})
+  target_include_directories(${BINARY_NAME} PRIVATE ${X11_INCLUDE_DIR})
+endif()
 
 target_include_directories(${BINARY_NAME} PRIVATE "${CMAKE_SOURCE_DIR}")

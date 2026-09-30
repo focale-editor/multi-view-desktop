@@ -53,7 +53,7 @@ Future<void> main() async {
     config: MultiAppConfig(
       fileLogParams: const LogParams(enable: true, sizeKb: 1024 * 10),
       generalParams: MultiPlatformParams(
-        animation: ViewAnimationConfig.all(fps: 60, modalFadeInOnOpen: true, modalFadeOutOnClose: true),
+        animation: ViewAnimationConfig.disabled,
         enableDynamicAnchor: false,
         closeMode: CloseMode.softCascade,
         menuItems: [

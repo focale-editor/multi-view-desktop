@@ -34,6 +34,7 @@ def main() -> int:
             "window_options",
             "locked_params",
             "animations_settle",
+            "anim_speed_matrix",
             "cascade",
             "macos_platform_params",
         ],
@@ -48,6 +49,11 @@ def main() -> int:
         "window_options": ["test_window_options.py", []],
         "locked_params": ["test_locked_params.py", []],
         "animations_settle": ["test_animations_settle.py", []],
+        # Full matrix is long (~11 speeds × 12 windows × open+close).
+        "anim_speed_matrix": [
+            "test_anim_speed_matrix.py",
+            ["--count", "12"],
+        ],
         "cascade": ["test_cascade.py", []],
         "macos_platform_params": ["test_macos_platform_params.py", []],
     }

@@ -104,6 +104,11 @@ class MvdLinuxWindow {
   void Close();
   /// Force destroy, skips soft-close.
   void Destroy();
+  /// Hide already done by caller. RemoveView (+drain) then gtk_widget_destroy.
+  static void ScheduleSafeDestroy(GtkWindow* window, FlView* view,
+                                  bool should_quit);
+  static bool HasSafeDestroyInFlight();
+  static void WaitUntilSafeToCreateView();
   void Focus();
   bool IsFocused();
   void Show();

@@ -3,8 +3,7 @@
 
 #include <glib.h>
 
-// Uncomment to enable native MVD debug logging:
-// #define MVD_ENABLE_LOG
+#define MVD_ENABLE_LOG
 
 #ifdef MVD_ENABLE_LOG
 #define MVD_LOG_TAG(tag, fmt, ...)                                     \

@@ -7,6 +7,7 @@ import os
 import signal
 import subprocess
 import sys
+import threading
 import time
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
@@ -101,14 +102,34 @@ def launched_example(
         stderr=subprocess.STDOUT,
         text=True,
     )
+    # Verbose native MVD logs fill the pipe and deadlock Flutter if unread.
+    def _drain_stdout() -> None:
+        if proc.stdout is None:
+            return
+        try:
+            while proc.stdout.readline():
+                pass
+        except Exception:  # noqa: BLE001
+            pass
+
+    drain_thread = threading.Thread(
+        target=_drain_stdout, name="mvd-e2e-drain", daemon=True
+    )
+    drain_thread.start()
     client = MvdE2eClient(base_url=f"http://127.0.0.1:{port}")
     try:
         client.wait_ready(timeout=ready_timeout)
+        # Primary FlView first-frame / GLX must settle before secondary create on X11.
+        try:
+            client.call("wait_open_settle")
+        except Exception:  # noqa: BLE001
+            time.sleep(1.5)
         yield client, proc
         if not allow_exit and proc.poll() is not None:
             raise E2eError(f"Flutter process exited early with code {proc.returncode}")
     finally:
         _terminate(proc)
+        drain_thread.join(timeout=2)
         if macos_file is not None:
             try:
                 macos_file.unlink(missing_ok=True)

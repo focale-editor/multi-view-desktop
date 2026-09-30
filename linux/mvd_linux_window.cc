@@ -6,8 +6,37 @@
 #include <gdk/gdkx.h>
 #endif
 
+#include <dlfcn.h>
+
+#include <cstdint>
 #include <cstring>
+#include <memory>
 #include <vector>
+
+// ABI-compatible copies of embedder.h types.
+struct MvdRemoveViewResult {
+  size_t struct_size;
+  bool removed;
+  void* user_data;
+};
+
+struct MvdRemoveViewInfo {
+  size_t struct_size;
+  int64_t view_id;
+  void* user_data;
+  void (*remove_view_callback)(const MvdRemoveViewResult* result);
+};
+
+using MvdEmbedderRemoveViewFn = int (*)(void* engine,
+                                        const MvdRemoveViewInfo* info);
+
+// Teardown order (X11/GLX race with Flutter raster thread):
+//   1. Caller hides the GtkWindow and unregisters the Dart view.
+//   2. Embedder RemoveView with callback (stops presenting to this view).
+//   3. Short main-thread drain after the callback (#164564: callback can
+//      fire before the raster queue is fully idle).
+//   4. gtk_widget_destroy — FlView dispose may RemoveView again (harmless).
+// X11 GLX errors during the race are still suppressed in the runner.
 
 #define MVD_LOG MVD_LOG_WINDOW
 
@@ -433,6 +462,302 @@ void MvdLinuxWindow::Close() {
   MVD_LOG("Close  view_id=%" G_GINT64_FORMAT "  g_idle_add done", view_id);
 }
 
+namespace {
+
+int g_safe_destroy_inflight = 0;
+
+constexpr size_t kEmbedderRemoveViewIndex = 37;
+constexpr size_t kMinProcTableSize =
+    sizeof(size_t) + (kEmbedderRemoveViewIndex + 1) * sizeof(void*);
+
+// Extra time after RemoveView callback before destroying the GdkWindow/XID.
+// #164564: callback can fire before the raster queue is fully idle.
+constexpr guint kPostRemoveViewDrainMs = 800;
+// Gap after one destroy before starting the next RemoveView/destroy.
+constexpr guint kInterDestroyGapMs = 200;
+// If RemoveView never completes, destroy anyway so windows do not leak forever.
+constexpr guint kRemoveViewFallbackDestroyMs = 4000;
+
+struct SafeDestroyRequest {
+  GtkWidget* widget = nullptr;
+  FlView* view = nullptr;
+  bool should_quit = false;
+  bool destroy_scheduled = false;
+  guint drain_source_id = 0;
+  guint fallback_source_id = 0;
+};
+
+// Serialize GTK/GL teardown across windows. Parallel gtk_widget_destroy of
+// secondary FlViews on a shared FlEngine/GLX display is what crashes on X11.
+std::vector<SafeDestroyRequest*> g_destroy_queue;
+bool g_destroy_pipeline_busy = false;
+
+bool PointerInFlutterSo(void* fn, void* so_base) {
+  if (!fn || !so_base) {
+    return false;
+  }
+  Dl_info info{};
+  if (dladdr(fn, &info) == 0) {
+    return false;
+  }
+  return info.dli_fbase == so_base;
+}
+
+bool FindEmbedderRemoveView(FlEngine* engine,
+                            void** out_flutter_engine,
+                            MvdEmbedderRemoveViewFn* out_remove_view) {
+  if (!engine || !out_flutter_engine || !out_remove_view) {
+    return false;
+  }
+  void* marker = dlsym(RTLD_DEFAULT, "fl_engine_new");
+  Dl_info so_info{};
+  void* so_base = nullptr;
+  if (marker && dladdr(marker, &so_info) != 0) {
+    so_base = so_info.dli_fbase;
+  }
+  auto* base = reinterpret_cast<uint8_t*>(engine);
+  for (size_t off = sizeof(void*); off <= 512; off += sizeof(void*)) {
+    const size_t table_size = *reinterpret_cast<size_t*>(base + off);
+    if (table_size < kMinProcTableSize || table_size > 1024 ||
+        (table_size % sizeof(void*)) != 0) {
+      continue;
+    }
+    void* flutter_engine = *reinterpret_cast<void**>(base + off - sizeof(void*));
+    if (!flutter_engine) {
+      continue;
+    }
+    void* add_view = *reinterpret_cast<void**>(
+        base + off + sizeof(size_t) + 36 * sizeof(void*));
+    void* remove_view = *reinterpret_cast<void**>(
+        base + off + sizeof(size_t) +
+        kEmbedderRemoveViewIndex * sizeof(void*));
+    if (!PointerInFlutterSo(add_view, so_base) ||
+        !PointerInFlutterSo(remove_view, so_base)) {
+      continue;
+    }
+    *out_flutter_engine = flutter_engine;
+    *out_remove_view = reinterpret_cast<MvdEmbedderRemoveViewFn>(remove_view);
+    return true;
+  }
+  return false;
+}
+
+void ReleaseSafeDestroyInflight() {
+  if (g_safe_destroy_inflight > 0) {
+    --g_safe_destroy_inflight;
+  }
+}
+
+void ClearSafeDestroyTimeouts(SafeDestroyRequest* req) {
+  if (!req) {
+    return;
+  }
+  if (req->drain_source_id != 0) {
+    g_source_remove(req->drain_source_id);
+    req->drain_source_id = 0;
+  }
+  if (req->fallback_source_id != 0) {
+    g_source_remove(req->fallback_source_id);
+    req->fallback_source_id = 0;
+  }
+}
+
+void PumpDestroyQueue();
+
+gboolean DestroyWidgetAfterDrain(gpointer data) {
+  auto* req = static_cast<SafeDestroyRequest*>(data);
+  req->drain_source_id = 0;
+  if (req->destroy_scheduled) {
+    return G_SOURCE_REMOVE;
+  }
+  req->destroy_scheduled = true;
+  ClearSafeDestroyTimeouts(req);
+
+  GtkWidget* widget = req->widget;
+  const bool should_quit = req->should_quit;
+  MVD_LOG("DestroyWidgetAfterDrain  widget=%p  should_quit=%d  %s",
+          static_cast<void*>(widget), static_cast<int>(should_quit),
+          mvd_xid_str(GTK_WINDOW(widget)).c_str());
+
+  g_object_set_data(G_OBJECT(widget), "mvd-safe-destroy-req", nullptr);
+
+  gtk_widget_destroy(widget);
+  g_object_unref(widget);
+  if (req->view) {
+    // view was only borrowed; window owned it. Clear so we do not touch it.
+    req->view = nullptr;
+  }
+  ReleaseSafeDestroyInflight();
+  delete req;
+
+  if (should_quit) {
+    g_destroy_pipeline_busy = false;
+    GApplication* app = g_application_get_default();
+    MVD_LOG("DestroyWidgetAfterDrain  g_application_quit  app=%p",
+            static_cast<void*>(app));
+    if (app) {
+      g_application_quit(app);
+    }
+  } else {
+    // Keep pipeline busy until gap elapses so the next destroy does not
+    // overlap residual GLX work from this one.
+    g_timeout_add(
+        kInterDestroyGapMs,
+        [](gpointer) -> gboolean {
+          g_destroy_pipeline_busy = false;
+          PumpDestroyQueue();
+          return G_SOURCE_REMOVE;
+        },
+        nullptr);
+  }
+  return G_SOURCE_REMOVE;
+}
+
+void ScheduleWidgetDestroy(SafeDestroyRequest* req, guint delay_ms,
+                           const char* reason) {
+  if (!req || req->destroy_scheduled) {
+    return;
+  }
+  if (req->drain_source_id != 0) {
+    return;
+  }
+  MVD_LOG("ScheduleWidgetDestroy  widget=%p  delay_ms=%u  reason=%s",
+          static_cast<void*>(req->widget), delay_ms, reason);
+  req->drain_source_id =
+      g_timeout_add(delay_ms, DestroyWidgetAfterDrain, req);
+}
+
+gboolean FallbackDestroyTimeout(gpointer data) {
+  auto* req = static_cast<SafeDestroyRequest*>(data);
+  req->fallback_source_id = 0;
+  ScheduleWidgetDestroy(req, 0, "remove_view_fallback");
+  return G_SOURCE_REMOVE;
+}
+
+gboolean OnEmbedderViewRemovedMain(gpointer data) {
+  auto* req = static_cast<SafeDestroyRequest*>(data);
+  ScheduleWidgetDestroy(req, kPostRemoveViewDrainMs, "remove_view_callback");
+  return G_SOURCE_REMOVE;
+}
+
+void OnEmbedderViewRemoved(const MvdRemoveViewResult* result) {
+  auto* req = result ? static_cast<SafeDestroyRequest*>(result->user_data)
+                     : nullptr;
+  MVD_LOG("OnEmbedderViewRemoved  removed=%d  req=%p",
+          static_cast<int>(result && result->removed),
+          static_cast<void*>(req));
+  if (!req) {
+    return;
+  }
+  g_main_context_invoke(g_main_context_default(), OnEmbedderViewRemovedMain,
+                        req);
+}
+
+bool RequestEngineRemoveView(FlEngine* engine, int64_t flutter_view_id,
+                             SafeDestroyRequest* req) {
+  void* flutter_engine = nullptr;
+  MvdEmbedderRemoveViewFn embedder_remove_view = nullptr;
+  // view_id 0 is the implicit/primary view — embedder rejects RemoveView.
+  if (!engine || flutter_view_id <= 0 || !req ||
+      !FindEmbedderRemoveView(engine, &flutter_engine, &embedder_remove_view)) {
+    MVD_LOG("RequestEngineRemoveView  skip  engine=%p  view_id=%"
+            G_GINT64_FORMAT, static_cast<void*>(engine), flutter_view_id);
+    return false;
+  }
+  MvdRemoveViewInfo info{};
+  info.struct_size = sizeof(MvdRemoveViewInfo);
+  info.view_id = flutter_view_id;
+  info.user_data = req;
+  info.remove_view_callback = OnEmbedderViewRemoved;
+  MVD_LOG("RequestEngineRemoveView  calling embedder RemoveView  view_id=%"
+          G_GINT64_FORMAT, flutter_view_id);
+  const int remove_result = embedder_remove_view(flutter_engine, &info);
+  MVD_LOG("RequestEngineRemoveView  returned %d", remove_result);
+  return remove_result == 0;
+}
+
+void StartDestroyRequest(SafeDestroyRequest* req) {
+  FlView* view = req->view;
+  FlEngine* engine = (view && FL_IS_VIEW(view)) ? fl_view_get_engine(view)
+                                                : nullptr;
+  const int64_t flutter_view_id = view ? fl_view_get_id(view) : -1;
+  MVD_LOG("StartDestroyRequest  widget=%p  view=%p  flutter_view_id=%"
+          G_GINT64_FORMAT "  engine=%p  should_quit=%d",
+          static_cast<void*>(req->widget), static_cast<void*>(view),
+          flutter_view_id, static_cast<void*>(engine),
+          static_cast<int>(req->should_quit));
+
+  if (RequestEngineRemoveView(engine, flutter_view_id, req)) {
+    req->fallback_source_id =
+        g_timeout_add(kRemoveViewFallbackDestroyMs, FallbackDestroyTimeout,
+                      req);
+  } else {
+    ScheduleWidgetDestroy(req, kPostRemoveViewDrainMs, "no_remove_view");
+  }
+}
+
+void PumpDestroyQueue() {
+  if (g_destroy_pipeline_busy) {
+    return;
+  }
+  if (g_destroy_queue.empty()) {
+    return;
+  }
+  g_destroy_pipeline_busy = true;
+  SafeDestroyRequest* req = g_destroy_queue.front();
+  g_destroy_queue.erase(g_destroy_queue.begin());
+  StartDestroyRequest(req);
+}
+
+}  // namespace
+
+void MvdLinuxWindow::ScheduleSafeDestroy(GtkWindow* window, FlView* view,
+                                         bool should_quit) {
+  if (!window) {
+    return;
+  }
+  GtkWidget* widget = GTK_WIDGET(window);
+  if (g_object_get_data(G_OBJECT(widget), "mvd-safe-destroy")) {
+    return;
+  }
+  g_object_set_data(G_OBJECT(widget), "mvd-safe-destroy", GINT_TO_POINTER(1));
+
+  ++g_safe_destroy_inflight;
+  g_object_ref(widget);
+
+  auto* req = new SafeDestroyRequest();
+  req->widget = widget;
+  req->view = view;
+  req->should_quit = should_quit;
+  g_object_set_data(G_OBJECT(widget), "mvd-safe-destroy-req", req);
+
+  MVD_LOG("ScheduleSafeDestroy  enqueue  widget=%p  view=%p  should_quit=%d"
+          "  queue_size=%zu  busy=%d",
+          static_cast<void*>(widget), static_cast<void*>(view),
+          static_cast<int>(should_quit), g_destroy_queue.size() + 1,
+          static_cast<int>(g_destroy_pipeline_busy));
+
+  g_destroy_queue.push_back(req);
+  PumpDestroyQueue();
+}
+
+bool MvdLinuxWindow::HasSafeDestroyInFlight() {
+  return g_safe_destroy_inflight > 0;
+}
+
+void MvdLinuxWindow::WaitUntilSafeToCreateView() {
+  if (g_safe_destroy_inflight <= 0) {
+    return;
+  }
+  MVD_LOG("WaitUntilSafeToCreateView  inflight=%d", g_safe_destroy_inflight);
+  const gint64 deadline = g_get_monotonic_time() + 3 * G_TIME_SPAN_SECOND;
+  while (g_safe_destroy_inflight > 0 && g_get_monotonic_time() < deadline) {
+    g_main_context_iteration(nullptr, TRUE);
+  }
+  MVD_LOG("WaitUntilSafeToCreateView  done  inflight=%d",
+          g_safe_destroy_inflight);
+}
+
 void MvdLinuxWindow::Destroy() {
   MVD_LOG("Destroy  START  view_id=%" G_GINT64_FORMAT
           "  window=%p  view=%p  is_modal=%d  modal_owner=%" G_GINT64_FORMAT
@@ -446,13 +771,15 @@ void MvdLinuxWindow::Destroy() {
     return;
   }
   StopDragReleaseWatcher();
+  Hide();
   const bool was_modal = is_modal;
   const int64_t owner_id = modal_owner_view_id;
   const int64_t vid = view_id;
   GtkWindow* w = window;
+  FlView* fl_view = view;
   MVD_LOG("Destroy  nulling this->window and this->view  view_id=%"
           G_GINT64_FORMAT "  w=%p  view=%p",
-          view_id, static_cast<void*>(w), static_cast<void*>(view));
+          view_id, static_cast<void*>(w), static_cast<void*>(fl_view));
   window = nullptr;
   view = nullptr;
   MVD_LOG("Destroy  calling Unregister(%" G_GINT64_FORMAT ")  w=%p",
@@ -470,49 +797,9 @@ void MvdLinuxWindow::Destroy() {
     FocusModalTarget(GetActiveModalFocusTarget(owner_id));
   }
 
-  // ---- Deferred destroy (same rationale as on_delete FINAL CLOSE) ----------
-  //
-  // Calling gtk_widget_destroy while Flutter's raster thread still has frames
-  // queued for this view causes fl_compositor / FlView to be accessed after
-  // the GObject has been disposed, producing GLib-GObject-CRITICAL warnings
-  // and risking GLX context corruption.
-  //
-  // Fix: hide the window immediately (visual feedback), then destroy it 100 ms
-  // later.  By that time Dart has received the 'destroyWindow' acknowledgment,
-  // removed the view from its widget tree, and Flutter's raster thread has
-  // drained any in-flight frames for this view.
-  // --------------------------------------------------------------------------
-  MVD_LOG("Destroy  hiding window immediately  view_id=%" G_GINT64_FORMAT
-          "  w=%p", vid, static_cast<void*>(w));
-  gtk_widget_hide(GTK_WIDGET(w));
-
-  // Keep the GObject alive across the timer.
-  g_object_ref(GTK_WIDGET(w));
-
-  struct DestroyCtx { GtkWidget* widget; int64_t vid; };
-  auto* ctx = new DestroyCtx{GTK_WIDGET(w), vid};
-
-  MVD_LOG("Destroy  scheduling deferred gtk_widget_destroy (100 ms)"
-          "  view_id=%" G_GINT64_FORMAT "  w=%p", vid, static_cast<void*>(w));
-
-  g_timeout_add(
-      100,
-      [](gpointer data) -> gboolean {
-        auto* c = static_cast<DestroyCtx*>(data);
-        MVD_LOG("Destroy  deferred_destroy_cb  view_id=%" G_GINT64_FORMAT
-                "  calling gtk_widget_destroy  widget=%p",
-                c->vid, static_cast<void*>(c->widget));
-        gtk_widget_destroy(c->widget);
-        MVD_LOG("Destroy  deferred_destroy_cb  view_id=%" G_GINT64_FORMAT
-                "  gtk_widget_destroy returned  releasing extra GObject ref",
-                c->vid);
-        g_object_unref(c->widget);
-        delete c;
-        return G_SOURCE_REMOVE;
-      },
-      ctx);
-
-  MVD_LOG("Destroy  END (deferred)  original view_id=%" G_GINT64_FORMAT, vid);
+  ScheduleSafeDestroy(w, fl_view, false);
+  MVD_LOG("Destroy  END (safe destroy scheduled)  original view_id=%"
+          G_GINT64_FORMAT, vid);
 }
 
 namespace {
