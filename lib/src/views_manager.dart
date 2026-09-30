@@ -26,11 +26,7 @@ abstract class ViewsManager {
   });
 
   /// Creates a borderless popup owned by `parentRealId`. Returns the real view id.
-  Future<int> createPopup({
-    required int parentRealId,
-    required Size size,
-    AnimationSettings? animation,
-  });
+  Future<int> createPopup({required int parentRealId, required Size size, AnimationSettings? animation});
 
   /// Shows a popup created by [createPopup].
   ///
@@ -51,26 +47,16 @@ abstract class ViewsManager {
   Future<void> destroyPopup(int viewId);
 
   /// Moves and optionally resizes a popup to [bounds] in logical screen space.
-  Future<bool> positionPopup(
-    int viewId,
-    Rect bounds, {
-    AnimationSettings? animation,
-  });
+  Future<bool> positionPopup(int viewId, Rect bounds, {AnimationSettings? animation});
 
   WindowInfo windowType(int viewId);
 
-  Future<bool> closeView<T>(
-    int viewId, {
-    T? dialogRes,
-    AnimationSettings? animation,
-  });
+  Future<bool> closeView<T>(int viewId, {T? dialogRes, AnimationSettings? animation});
+
+  void completeShow(int viewId);
 
   /// Stages one-shot animation params for [viewId]; consumed by the next matching animation.
-  void stageForceViewAnimation(
-    int viewId,
-    ViewAnimationType type, {
-    AnimationSettings? animation,
-  });
+  void stageForceViewAnimation(int viewId, ViewAnimationType type, {AnimationSettings? animation});
 
   Future<bool> closeApp({CloseMode? closeMode});
 

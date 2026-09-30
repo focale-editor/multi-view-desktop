@@ -197,17 +197,13 @@ class _ViewsManagerImpl implements ViewsManager {
     }
 
     if (_lifecycle.hasPendingDialogCreate(parentRealId)) {
-      MvdLog.instance.error('create', 'createDialog while another dialog is creating', {
-        'parentRealId': parentRealId,
-      });
+      MvdLog.instance.error('create', 'createDialog while another dialog is creating', {'parentRealId': parentRealId});
       throw Exception('Create error: "Create dialog" was called while another dialog is creating in the same window');
     }
 
     final comparedOpts = _compareDialogGlobalAndNewOpts(preferred: newOpts, global: config.globalDialogOptions);
     if (comparedOpts.modal == true && _lifecycle.hasModalDialog(parentRealId)) {
-      MvdLog.instance.error('create', 'createDialog: modal already open on parent', {
-        'parentRealId': parentRealId,
-      });
+      MvdLog.instance.error('create', 'createDialog: modal already open on parent', {'parentRealId': parentRealId});
       throw Exception('Create error: One window can has only one modal dialog');
     }
 
@@ -216,6 +212,7 @@ class _ViewsManagerImpl implements ViewsManager {
       'modal': comparedOpts.modal,
       'title': comparedOpts.title,
       'hasShellOverrides': newOpts?.shellOverrides != null,
+      'showOnInit': comparedOpts.showOnInit,
       'shell': _shellLog(newOpts?.shellOverrides),
     });
 
@@ -238,9 +235,7 @@ class _ViewsManagerImpl implements ViewsManager {
   @override
   Future<int> createPopup({required int parentRealId, required Size size, AnimationSettings? animation}) async {
     if (!_registry.windows.containsKey(parentRealId) && !_registry.dialogs.containsKey(parentRealId)) {
-      MvdLog.instance.error('create', 'createPopup: parent is not registered', {
-        'parentRealId': parentRealId,
-      });
+      MvdLog.instance.error('create', 'createPopup: parent is not registered', {'parentRealId': parentRealId});
       throw ArgumentError.value(parentRealId, 'Parent error', 'Parent window is not registered');
     }
 
@@ -265,6 +260,19 @@ class _ViewsManagerImpl implements ViewsManager {
         );
       },
     );
+  }
+
+  @override
+  void completeShow(int viewId) async {
+    MvdLog.instance.ids(
+      'completeShow',
+      'completeShow requested',
+      realId: viewId,
+      publicId: _realToShifted(viewId),
+      extra: {'isDialog': _registry.isDialog(viewId), 'isPopup': _registry.isPopup(viewId)},
+    );
+    _lifecycle.completeShow(viewId: viewId);
+    return;
   }
 
   // ===========================================================================
@@ -308,10 +316,7 @@ class _ViewsManagerImpl implements ViewsManager {
 
   @override
   void cancelCascadeClose(int viewId) {
-    MvdLog.instance.info('close', 'cancelCascadeClose', {
-      'realId': viewId,
-      'publicId': _realToShifted(viewId),
-    });
+    MvdLog.instance.info('close', 'cancelCascadeClose', {'realId': viewId, 'publicId': _realToShifted(viewId)});
     _lifecycle.closeService.cancelCascade(viewId);
   }
 
@@ -320,10 +325,7 @@ class _ViewsManagerImpl implements ViewsManager {
 
   @override
   void setAppCloseMode(CloseMode closeMode) {
-    MvdLog.instance.info('close', 'setAppCloseMode', {
-      'from': this.closeMode.name,
-      'to': closeMode.name,
-    });
+    MvdLog.instance.info('close', 'setAppCloseMode', {'from': this.closeMode.name, 'to': closeMode.name});
     this.closeMode = closeMode;
     _lifecycle.closeService.closeMode = closeMode;
     applyNativeLifecyclePolicy();
@@ -542,9 +544,7 @@ class _ViewsManagerImpl implements ViewsManager {
         'windows': allRealWindowIds.join(','),
       },
     );
-    _notifyObservers(
-      (o) => o.onWindowOpened(publicId, parentViewId: parentPublicId),
-    );
+    _notifyObservers((o) => o.onWindowOpened(publicId, parentViewId: parentPublicId));
     if (_realAnchorId == null) {
       _setAnchor(viewId);
     }
@@ -679,26 +679,17 @@ class _ViewsManagerImpl implements ViewsManager {
       realId: viewId,
       publicId: shiftedViewId,
       parentRealId: parentRealId,
-      extra: {
-        'wasAnchor': viewId == _realAnchorId,
-        'children': children.join(','),
-        'closeMode': closeMode.name,
-      },
+      extra: {'wasAnchor': viewId == _realAnchorId, 'children': children.join(','), 'closeMode': closeMode.name},
     );
 
-    if (!isDialog &&
-        closeMode == CloseMode.softCascade &&
-        children.isNotEmpty) {
+    if (!isDialog && closeMode == CloseMode.softCascade && children.isNotEmpty) {
       MvdLog.instance.error('close', 'cascade: parent closed while children still registered', {
         'realId': viewId,
         'publicId': shiftedViewId,
         'children': children.join(','),
       });
     }
-    if (!isDialog &&
-        closeMode == CloseMode.softCascade &&
-        parentRealId != null &&
-        !_registry.isWindow(parentRealId)) {
+    if (!isDialog && closeMode == CloseMode.softCascade && parentRealId != null && !_registry.isWindow(parentRealId)) {
       MvdLog.instance.error('close', 'cascade: child closed after parent was already destroyed', {
         'realId': viewId,
         'publicId': shiftedViewId,
@@ -738,10 +729,7 @@ class _ViewsManagerImpl implements ViewsManager {
   void _unregisterPopup(int viewId) {
     final parentId = _registry.popups[viewId]?.parentId;
     _registry.popups.remove(viewId);
-    MvdLog.instance.info('create', 'popup unregistered', {
-      'realId': viewId,
-      'parentRealId': parentId,
-    });
+    MvdLog.instance.info('create', 'popup unregistered', {'realId': viewId, 'parentRealId': parentId});
   }
 
   void _destroyPopupsByParent(int parentId) {
@@ -910,6 +898,9 @@ class _ViewsManagerImpl implements ViewsManager {
     }
     if (realAnchorId != viewId || !_registry.windows.containsKey(viewId)) return;
     _proxies.state.show(viewId);
+    if (_hasInitView) {
+      _ffiBridge.setInitWindowParamsAfterShow(_initPlatformId, config);
+    }
   }
 
   // ===========================================================================
@@ -1063,6 +1054,7 @@ class _ViewsManagerImpl implements ViewsManager {
       title: preferred.title ?? global.title,
       fullScreen: preferred.fullScreen ?? global.fullScreen,
       alwaysOnTop: preferred.alwaysOnTop ?? global.alwaysOnTop,
+      showOnInit: preferred.showOnInit ?? global.showOnInit,
     );
   }
 

@@ -304,6 +304,11 @@ class MultiViewDesktop {
     return _manager.closeView(_realId, animation: animation);
   }
 
+  /// Show for `showOnInit` == false case. Completes create view cycle.
+  void completeShow() {
+    return _manager.completeShow(_realId);
+  }
+
   /// Closes this dialog and completes the `openDialog` future on the caller side.
   ///
   /// `res` is forwarded to the `await openDialog<T>()` expression. Has no effect

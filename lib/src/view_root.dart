@@ -56,10 +56,11 @@ Widget createMultiViewRoot(
 
   // Reset native behavioral flags before the widget tree is built
   if (_hasInitView) {
-    _ffiBridge.resetWindowToDefaults(_initPlatformId, config);
+    _ffiBridge.setInitWindowParamsBeforeShow(_initPlatformId, config);
   }
 
   final mainRoot = _MultiViewRoot(homeBuilder: home, config: config);
+
   return scope?.call(mainRoot) ?? mainRoot;
 }
 

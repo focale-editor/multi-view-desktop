@@ -101,6 +101,9 @@ class LifecycleViewsController {
   final bool Function(int parentId) _hasPendingDialogCreate;
   final bool Function(int parentId) _hasModalDialog;
 
+  final Map<int, Completer> showCompleters = {};
+  final Set<int> earlyCompletedShowCompleters = {};
+
   /// Pending views keyed by viewId or auxiliary dialog-create token.
   final Map<int, ViewCreateCompleter<int?>> createCompleters = {};
   int _nextToken = 0;
@@ -140,59 +143,65 @@ class LifecycleViewsController {
     WindowOptions? options,
     required ViewCreatedCallback onCreated,
     AnimationSettings? animation,
-  }) =>
-      windowOwner.open(options: options, onCreated: onCreated, animation: animation);
+  }) => windowOwner.open(options: options, onCreated: onCreated, animation: animation);
 
   Future<int> openChildWindow({
     required int parentId,
     WindowOptions? options,
     required ViewCreatedCallback onCreated,
     AnimationSettings? animation,
-  }) =>
-      childWindowOwner.open(
-        parentId: parentId,
-        options: options,
-        onCreated: onCreated,
-        animation: animation,
-      );
+  }) => childWindowOwner.open(parentId: parentId, options: options, onCreated: onCreated, animation: animation);
 
   Future<int> openModelessDialog({
     required int parentId,
     DialogOptions? options,
     required ViewCreatedCallback onCreated,
     AnimationSettings? animation,
-  }) =>
-      modelessDialogOwner.open(
-        parentId: parentId,
-        options: options,
-        onCreated: onCreated,
-        animation: animation,
-      );
+  }) => modelessDialogOwner.open(parentId: parentId, options: options, onCreated: onCreated, animation: animation);
 
   Future<int> openModalDialog({
     required int parentId,
     DialogOptions? options,
     required ViewCreatedCallback onCreated,
     AnimationSettings? animation,
-  }) =>
-      modalDialogOwner.open(
-        parentId: parentId,
-        options: options,
-        onCreated: onCreated,
-        animation: animation,
-      );
+  }) => modalDialogOwner.open(parentId: parentId, options: options, onCreated: onCreated, animation: animation);
 
   int openPopup({
     required int parentId,
     required Size size,
     required ViewCreatedCallback onCreated,
     AnimationSettings? animation,
-  }) =>
-      popupOwner.open(parentId: parentId, size: size, onCreated: onCreated, animation: animation);
+  }) => popupOwner.open(parentId: parentId, size: size, onCreated: onCreated, animation: animation);
+
+  void completeShow({required int viewId}) {
+    completeShowLater(viewId);
+  }
 
   // ---------------------------------------------------------------------------
   // First-frame barrier (call from ViewRoot post-frame callback).
   // ---------------------------------------------------------------------------
+
+  Future<void> markAsShowLaterAndWait(int viewId) async {
+    if (_hasEarlyCompleted(viewId)) return;
+
+    showCompleters[viewId] = Completer();
+    return showCompleters[viewId]?.future;
+  }
+
+  void completeShowLater(int viewId) async {
+    if (showCompleters[viewId] == null) {
+      _markEarlyCompleted(viewId);
+      return;
+    }
+    showCompleters[viewId]?.complete();
+    showCompleters.remove(viewId);
+  }
+
+  bool _hasEarlyCompleted(int viewId) => earlyCompletedShowCompleters.remove(viewId);
+
+  void _markEarlyCompleted(int viewId) {
+    earlyCompletedShowCompleters.add(viewId);
+  }
 
   void firstFrameCbComplete(int viewId) {
     MvdLog.instance.info('create', 'first frame', {'realId': viewId});

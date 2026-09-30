@@ -736,7 +736,7 @@ abstract class FfiBridge implements Finalizable {
     _setHasTaskbarCbN(hasCallback ? 1 : 0);
   }
 
-  void resetWindowToDefaults(int viewId, MultiAppConfig config) {
+  void setInitWindowParamsBeforeShow(int viewId, MultiAppConfig config) {
     setPreventClose(viewId, isPreventClose: false);
     setPreConfirmClose(viewId, false);
     setConfirmClose(viewId, isConfirm: false);
@@ -749,6 +749,9 @@ abstract class FfiBridge implements Finalizable {
     setOpacity(viewId, 1);
     setAspectRatio(viewId, 0);
     setIgnoreMouseEvents(viewId, false);
+  }
+
+  void setInitWindowParamsAfterShow(int viewId, MultiAppConfig config) {
     setTitleBarStyle(
       viewId,
       style: config.globalWindowOptions.titleBarStyle ?? TitleBarStyle.normal,
@@ -756,6 +759,9 @@ abstract class FfiBridge implements Finalizable {
       minimizeVisibility: config.globalWindowOptions.windowButtonVisibility ?? false,
       maximizeVisibility: config.globalWindowOptions.windowButtonVisibility ?? false,
     );
+
+    final defaultColor = config.globalWindowOptions.backgroundColor?? Colors.white;
+    setBackgroundColor(viewId, color: defaultColor);
   }
 }
 

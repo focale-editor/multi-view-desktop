@@ -41,18 +41,14 @@ abstract class ViewOwnerBase {
   static const int nativeCreateToken = 0;
 
   ViewAnimationType get _closeType => switch (openCloseType) {
-        ViewAnimationType.createWindow => ViewAnimationType.closeWindow,
-        ViewAnimationType.createDialog => ViewAnimationType.closeDialog,
-        ViewAnimationType.createPopup => ViewAnimationType.closePopup,
-        _ => openCloseType,
-      };
+    ViewAnimationType.createWindow => ViewAnimationType.closeWindow,
+    ViewAnimationType.createDialog => ViewAnimationType.closeDialog,
+    ViewAnimationType.createPopup => ViewAnimationType.closePopup,
+    _ => openCloseType,
+  };
 
   Future<void> fadeOut(int viewId) {
-    return host.animationController.animateClose(
-      viewId,
-      type: _closeType,
-      policy: fade,
-    );
+    return host.animationController.animateClose(viewId, type: _closeType, policy: fade);
   }
 
   Future<void> close(int viewId);
@@ -80,16 +76,19 @@ abstract class ViewOwnerBase {
 
   /// Shows the window and runs open fade in parallel (opacity 0 -> 1).
   Future<void> showWithFadeIn(int viewId) async {
-    await host.animationController.animateOpen(
-      viewId,
-      type: openCloseType,
-      policy: fade,
-    );
+    await host.animationController.animateOpen(viewId, type: openCloseType, policy: fade);
   }
 
-  Future<void> showAfterFirstFrame(int viewId) async {
+  Future<void> showAfterFirstFrameOrWaitCompleteShow(int viewId, bool showOnInit, bool isFullScreen) async {
+    if (!showOnInit) {
+      await host.markAsShowLaterAndWait(viewId);
+    }
+
     await waitFirstFrame(viewId);
     await showWithFadeIn(viewId);
+    if (isFullScreen) {
+      host.proxies.state.setFullScreen(viewId, isFullScreen);
+    }
   }
 
   int createNativeWindow({required WindowOptions opts, int? parentId}) {

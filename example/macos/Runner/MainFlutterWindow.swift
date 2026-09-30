@@ -8,6 +8,7 @@ class MainFlutterWindow: NSWindow {
     MultiviewDesktopPlugin.prepareEngine(engine, window: self)
 
     let flutterViewController = FlutterViewController(engine: engine, nibName: nil, bundle: nil)
+    flutterViewController.backgroundColor = .clear
     let windowFrame = self.frame
     self.contentViewController = flutterViewController
     self.setFrame(windowFrame, display: false)
@@ -15,5 +16,4 @@ class MainFlutterWindow: NSWindow {
     RegisterGeneratedPlugins(registry: flutterViewController)
     super.awakeFromNib()
   }
-
 }

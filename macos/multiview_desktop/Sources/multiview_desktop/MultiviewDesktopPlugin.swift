@@ -12,6 +12,12 @@ public class MultiviewDesktopPlugin: NSObject, FlutterPlugin {
         impl.engine = engine
         impl.mainWindowRef = window
         window.orderOut(nil)
+        window.backgroundColor = .clear
+        window.titleVisibility = .hidden
+        window.standardWindowButton(.closeButton)?.isHidden = true
+        window.standardWindowButton(.miniaturizeButton)?.isHidden = true
+        window.standardWindowButton(.zoomButton)?.isHidden = true
+        window.titlebarAppearsTransparent = true
 
 
         // turn engine to multiView mode. Critical part that

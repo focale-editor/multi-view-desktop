@@ -43,21 +43,22 @@ class ViewOptionsApplier {
     if (opts.title != null) {
       _ffi.setTitle(viewId, title: opts.title!);
     }
-    if (opts.titleBarStyle != null) {
-      _ffi.setTitleBarStyle(
-        viewId,
-        style: opts.titleBarStyle!,
-        closeVisibility: opts.windowButtonVisibility!,
-        maximizeVisibility: opts.windowButtonVisibility!,
-        minimizeVisibility: opts.windowButtonVisibility!,
-      );
-    }
+    // _ffi.hide(viewId);
+    // if (opts.titleBarStyle != null) {
+    //   _ffi.setTitleBarStyle(
+    //     viewId,
+    //     style: opts.titleBarStyle!,
+    //     closeVisibility: opts.windowButtonVisibility!,
+    //     maximizeVisibility: opts.windowButtonVisibility!,
+    //     minimizeVisibility: opts.windowButtonVisibility!,
+    //   );
+    // }
     if (opts.alwaysOnTop != null) {
       _ffi.setAlwaysOnTop(viewId, isAlwaysOnTop: opts.alwaysOnTop!);
     }
-    if (opts.fullScreen != null) {
-      _ffi.setFullScreen(viewId, isFullScreen: opts.fullScreen!);
-    }
+    // if (opts.fullScreen != null) {
+    //   _ffi.setFullScreen(viewId, isFullScreen: opts.fullScreen!);
+    // }
   }
 
   void applyDialog(int viewId, DialogOptions opts) {

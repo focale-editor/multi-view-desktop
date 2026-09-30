@@ -484,7 +484,7 @@ class MultiviewDesktopImpl: NSObject, NSWindowDelegate {
 
         registerWindow(newWindow, viewId: viewId)
 
-        NSApp.activate(ignoringOtherApps: true)
+//        NSApp.activate(ignoringOtherApps: true)
 //        newWindow.makeKeyAndOrderFront(nil)
 
         DispatchQueue.main.async { [weak self] in

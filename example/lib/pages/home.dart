@@ -375,7 +375,7 @@ class _HomePageState extends State<HomePage> with WindowListener {
 
     return SafeArea(
       child: DialogModalLayer(
-        showBarrierForNotModalDialog: true,
+        showBarrierForNotModalDialog: false,
         child: Scaffold(
           appBar: _titleBarHidden
               ? null
@@ -457,10 +457,28 @@ class _HomePageState extends State<HomePage> with WindowListener {
                   'openWindow',
                   subtitle: 'Open a new window',
                   onTap: () async {
-                    openWindow(
-                      (ctx, viewId) => const HomePage(),
-                      options: WindowOptions(size: const Size(1000, 700), alignment: Alignment.center, title: ' '),
+                    final openRes = await openWindow(
+                      (ctx, viewId) {
+                        final mvd = MultiViewDesktop.fromId(viewId);
+                        Future.delayed(Duration(seconds: 2), () => mvd.completeShow());
+                        // mvd.setForceAnimation(
+                        //   ViewAnimationType.closeWindow,
+                        //   AnimationSettings(duration: Duration(milliseconds: 250)),
+                        // );
+                        return const HomePage();
+                      },
+                      options: WindowOptions(
+                        size: const Size(1000, 700),
+                        alignment: Alignment.center,
+                        title: ' ',
+                        showOnInit: true,
+                        fullScreen: false,
+                        // alwaysOnTop: true,
+                        maximumSize: const Size(10000, 10000),
+                      ),
+                      // animation: AnimationSettings(duration: Duration(seconds: 1)),
                     );
+                    debugPrint('Window $openRes opened');
                   },
                 ),
                 if (!windowInfo.isDialog) ...[
@@ -578,6 +596,12 @@ class _HomePageState extends State<HomePage> with WindowListener {
                     onTap: () async {
                       openDialog(
                         (ctx, viewId) {
+                          final mvd = MultiViewDesktop.fromId(viewId);
+                          Future.delayed(Duration(seconds: 2), () => mvd.completeShow());
+                          mvd.setForceAnimation(
+                            ViewAnimationType.closeDialog,
+                            AnimationSettings(duration: Duration(milliseconds: 250)),
+                          );
                           return const HomePage();
                         },
                         options: DialogOptions(
@@ -587,7 +611,7 @@ class _HomePageState extends State<HomePage> with WindowListener {
                           modal: true,
                           windowButtonVisibility: false,
                           // is ignoring in modal dialog
-                          showOnInit: false,
+                          showOnInit: true,
                         ),
                         parentContext: context,
                       );
@@ -597,7 +621,9 @@ class _HomePageState extends State<HomePage> with WindowListener {
                 _tile(
                   'closeWindow',
                   subtitle: 'Close this window',
-                  onTap: () => MultiViewDesktop.of(context).closeWindow(),
+                  onTap: () => MultiViewDesktop.of(
+                    context,
+                  ).closeWindow(animation: AnimationSettings(duration: Duration(seconds: 1), fps: 60)),
                 ),
                 if (!windowInfo.isModal || Platform.isWindows)
                   _tile('center', onTap: () => MultiViewDesktop.of(context).center()),

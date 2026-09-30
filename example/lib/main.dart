@@ -38,17 +38,13 @@ Future<void> main() async {
   // `--dart-define=MVD_E2E=true`. Handlers are injected here — not baked into
   // the HTTP server or into multiview_desktop core.
   final e2eStore = E2eContextStore();
-  await maybeStartE2eHarness(
-    handlers: buildExampleE2eHandlers(ExampleE2eHandlerDeps(contexts: e2eStore)),
-  );
+  await maybeStartE2eHarness(handlers: buildExampleE2eHandlers(ExampleE2eHandlerDeps(contexts: e2eStore)));
 
   runMultiApp(
     home: (globalScopeContext, id) {
       // E2eHost must sit *inside* MaterialApp (see MainWindowRoot) so overlay /
       // MaterialLocalizations work for primary-window RPC.
-      return MainWindowRoot(
-        e2eStore: e2eEnabledFromEnvironment() ? e2eStore : null,
-      );
+      return MainWindowRoot(e2eStore: e2eEnabledFromEnvironment() ? e2eStore : null);
     },
     globalScope: (child) {
       //any providers...
@@ -71,8 +67,7 @@ Future<void> main() async {
       macosParams: MacosPlatformParams(
         // Defaults match example dock behavior; cascade-exit E2E overrides via
         // MVD_E2E_CLOSE_APP_AFTER_LAST / MVD_E2E_SAVE_LAST_WINDOW.
-        closeAppAfterLastWindowClosed:
-            e2eCloseAppAfterLastWindowClosedFromEnvironment(),
+        closeAppAfterLastWindowClosed: e2eCloseAppAfterLastWindowClosedFromEnvironment(),
         saveLastWindowToReopen: e2eSaveLastWindowToReopenFromEnvironment(),
         onTerminate: () async {
           // do something before terminate
@@ -126,6 +121,7 @@ Future<void> main() async {
         titleBarStyle: TitleBarStyle.normal,
         windowButtonVisibility: true,
         title: 'Window 1',
+        backgroundColor: Colors.white,
       ),
       globalDialogOptions: DialogOptions(modal: false, windowButtonVisibility: true),
       observers: [AppWindowObserver()],
@@ -268,9 +264,7 @@ class _MainWindowRootState extends State<MainWindowRoot> with TrayListener {
       locale: const Locale('en'),
       localizationsDelegates: exampleLocalizationDelegates(),
       supportedLocales: ExampleLocalizations.supportedLocales,
-      home: widget.e2eStore != null
-          ? E2eHost(store: widget.e2eStore!, child: const HomePage())
-          : const HomePage(),
+      home: widget.e2eStore != null ? E2eHost(store: widget.e2eStore!, child: const HomePage()) : const HomePage(),
     );
   }
 }

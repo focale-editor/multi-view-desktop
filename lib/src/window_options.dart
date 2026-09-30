@@ -14,6 +14,7 @@ sealed class BaseOptions {
     this.title,
     this.fullScreen,
     this.alwaysOnTop,
+    this.showOnInit,
     this.shellOverrides,
   });
 
@@ -44,6 +45,9 @@ sealed class BaseOptions {
   /// Whether the window stays above other application windows.
   final bool? alwaysOnTop;
 
+  /// Whether the window is shown right after creation. Defaults to true.
+  final bool? showOnInit;
+
   /// Per-view overrides merged on top of `MultiViewDesktop.appShell`.
   ///
   /// Set `ViewShellOverrides.appearance` for theme or locale on this window only.
@@ -65,6 +69,7 @@ class WindowOptions extends BaseOptions {
     super.title,
     super.fullScreen,
     super.alwaysOnTop,
+    super.showOnInit,
     super.shellOverrides,
   });
 
@@ -95,7 +100,7 @@ class DialogOptions extends BaseOptions {
     super.windowButtonVisibility,
     super.backgroundColor,
     super.alwaysOnTop,
-    this.showOnInit,
+    super.showOnInit,
     super.shellOverrides,
   });
 
@@ -107,7 +112,4 @@ class DialogOptions extends BaseOptions {
   /// `DialogModalLayer` in the parent adds a Flutter scrim; the scrim alone does
   /// not block OS input.
   final bool? modal;
-
-  /// Whether the window is shown right after creation. Defaults to true.
-  final bool? showOnInit;
 }

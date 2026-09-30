@@ -29,7 +29,7 @@ class WindowOwner extends ViewOwnerBase {
     onCreated(viewId);
     trackUntilFirstFrame(viewId, parentId: null, isDialog: false);
     host.animationController.stageSoftOverride(viewId, ViewAnimationType.createWindow, animation);
-    await showAfterFirstFrame(viewId);
+    await showAfterFirstFrameOrWaitCompleteShow(viewId, options?.showOnInit ?? true, options?.fullScreen ?? false);
     return viewId;
   }
 
@@ -66,7 +66,7 @@ class ChildWindowOwner extends ViewOwnerBase {
     onCreated(viewId);
     trackUntilFirstFrame(viewId, parentId: parentId, isDialog: false);
     host.animationController.stageSoftOverride(viewId, ViewAnimationType.createWindow, animation);
-    await showAfterFirstFrame(viewId);
+    await showAfterFirstFrameOrWaitCompleteShow(viewId, options?.showOnInit ?? true, options?.fullScreen ?? false);
     return viewId;
   }
 
@@ -150,22 +150,21 @@ class DialogOwner extends ViewOwnerBase {
     onCreated(viewId);
     trackUntilFirstFrame(viewId, parentId: parentId, isDialog: true);
 
-    await waitFirstFrame(viewId);
-    // modal is ignore showOnInit because need complete create to correct show
+    final showOnInit = opts.showOnInit ?? true;
     if (modal) {
+      if (!showOnInit) {
+        await host.markAsShowLaterAndWait(viewId);
+      }
+      await waitFirstFrame(viewId);
       await Future<void>.delayed(const Duration(milliseconds: 35));
       ffi.completeModalDialogCreate(viewId);
-      //enable animation only on windows, macos don't support cause has his own animation
+      //enable animation only on windows, macos and linux don't support cause has his own animation
       if (Platform.isWindows) {
         await showWithFadeIn(viewId);
       }
-    }
-
-    if (opts.showOnInit ?? true) {
-      if (!modal) {
-        host.animationController.stageSoftOverride(viewId, ViewAnimationType.createDialog, animation);
-        await showWithFadeIn(viewId);
-      }
+    } else {
+      host.animationController.stageSoftOverride(viewId, ViewAnimationType.createDialog, animation);
+      await showAfterFirstFrameOrWaitCompleteShow(viewId, showOnInit, false);
     }
 
     completers[modalFinishedToken]?.complete();
