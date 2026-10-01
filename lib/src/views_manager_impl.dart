@@ -907,17 +907,9 @@ class _ViewsManagerImpl implements ViewsManager {
   // Native FFI events
   // ===========================================================================
 
-  /// Defers close orchestration until after the current frame fully completes.
-  ///
-  /// [SchedulerBinding.endOfFrame] completes only when draw + all post-frame
-  /// callbacks are done - then `step` runs with scheduler back at [SchedulerPhase.idle].
-  ///
-  /// Do not use [SchedulerBinding.addPostFrameCallback] here: that callback runs
-  /// during [SchedulerPhase.postFrameCallbacks], still inside the frame pipeline.
-  ///
-  /// Do not call [SchedulerBinding.scheduleFrame] here: from the native event
-  /// callback it can synchronously re-enter `beginFrame` while a frame is active.
-  /// [endOfFrame] already schedules a frame when [SchedulerPhase.idle].
+  /// Runs [step] after the current frame (draw + post-frame callbacks).
+  /// Prefer over [SchedulerBinding.addPostFrameCallback] / [scheduleFrame]:
+  /// those can re-enter the frame pipeline from a native close callback.
   void _deferCloseServiceStep(Future<void> Function() step) {
     WidgetsBinding.instance.endOfFrame.then((_) {
       unawaited(step());

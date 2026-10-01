@@ -656,7 +656,7 @@ bool RequestEngineRemoveView(FlEngine* engine, int64_t flutter_view_id,
                              SafeDestroyRequest* req) {
   void* flutter_engine = nullptr;
   MvdEmbedderRemoveViewFn embedder_remove_view = nullptr;
-  // view_id 0 is the implicit/primary view — embedder rejects RemoveView.
+  // view_id 0 is the implicit/primary view - embedder rejects RemoveView.
   if (!engine || flutter_view_id <= 0 || !req ||
       !FindEmbedderRemoveView(engine, &flutter_engine, &embedder_remove_view)) {
     MVD_LOG("RequestEngineRemoveView  skip  engine=%p  view_id=%"
@@ -1199,7 +1199,7 @@ void MvdLinuxWindow::SetAspectRatio(float ar) {
     gtk_window_get_size(window, &content_w, &content_h);
     // GTK applies GDK_HINT_ASPECT to the CSD frame (header + shadow), not to
     // gtk_window_get_size(). Convert content ratio so the frame constraint
-    // keeps the content at `ar` (e.g. 16:9 at 700px → 1244, not 1368).
+    // keeps the content at `ar` (e.g. 16:9 at 700px -> 1244, not 1368).
     const gint extra_w = cached_shadow_w;
     const gint extra_h = cached_shadow_h;
     const gint outer_h = content_h + extra_h;

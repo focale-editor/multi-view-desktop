@@ -34,7 +34,7 @@ FLUTTER_PLUGIN_EXPORT void MultiViewDesktopPrepareEngine(
 FLUTTER_PLUGIN_EXPORT FlutterDesktopEngineRef MultiViewDesktopGetEngineRef();
 
 // register_plugins is the app's RegisterPlugins. Called after the primary
-// view exists so plugins that need GetView() (tray, …) can register.
+// view exists so plugins that need GetView() (tray, ...) can register.
 FLUTTER_PLUGIN_EXPORT void MultiViewDesktopCreateMainView(
     HWND host_window,
     int width,

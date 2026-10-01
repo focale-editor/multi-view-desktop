@@ -944,7 +944,7 @@ bool MultiViewDesktopHandleWindowProc(HWND hwnd,
     multi_view_desktop::MultiViewDesktop *window = by_hwnd;
     bool used_main_fallback = false;
     const bool lifecycle = MvdIsEngineLifecycleMessage(message);
-    // Close/destroy must not fall back to the main controller — the engine
+    // Close/destroy must not fall back to the main controller - the engine
     // would treat that WM_CLOSE as process exit.
     if (window == nullptr && !lifecycle) {
         window = impl.FindByViewId(impl.main_view_id());
@@ -973,7 +973,7 @@ bool MultiViewDesktopHandleWindowProc(HWND hwnd,
         }
     }
 
-    // Pump RegisterTopLevelWindowProcDelegate plugins (tray, …). Skip
+    // Pump RegisterTopLevelWindowProcDelegate plugins (tray, ...). Skip
     // close/destroy: the engine lifecycle_manager would quit the process.
     if (!lifecycle && window != nullptr && window->controller != nullptr) {
         if (log) {
@@ -993,7 +993,7 @@ bool MultiViewDesktopHandleWindowProc(HWND hwnd,
         }
         if (handled) {
             MvdLog("HandleWindowProc RETURN true (consumed by Flutter/plugin "
-                   "delegate) — MVD HandleWindowProcForHwnd SKIPPED for %s hwnd=%p",
+                   "delegate) - MVD HandleWindowProcForHwnd SKIPPED for %s hwnd=%p",
                    msg_name, hwnd);
             return true;
         }

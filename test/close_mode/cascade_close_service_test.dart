@@ -18,7 +18,7 @@ void main() {
       expect(await service.waitWindow(42), isTrue);
     });
 
-    test('abort only affects the given id — parallel waits stay pending', () async {
+    test('abort only affects the given id - parallel waits stay pending', () async {
       service.attachWindow(1);
       service.attachWindow(2);
 

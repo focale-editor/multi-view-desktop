@@ -53,7 +53,7 @@ python3 scenarios/test_macos_platform_params.py
 ```
 
 `test_anim_speed_matrix.py` opens/closes N windows (default 12) for each
-`animationMs` in `100, 600, …, 4600, 5000` (step 500ms from 100 up to 5s).
+`animationMs` in `100, 600, ..., 4600, 5000` (step 500ms from 100 up to 5s).
 The full matrix is slow; use `--anim-ms` for a single step.
 
 **B. App already running** (fast iteration):
@@ -98,8 +98,8 @@ Cascade **exit** cases on macOS launch with the opposite via dart-define
 Example app uses ~150ms open/close fade. Handlers wait **animation + 120ms pad**
 (default ~270ms) after create/close unless you pass:
 
-- `animationMs` — soft animation override forwarded to the API
-- `settleMs` — explicit wait after the operation
+- `animationMs` - soft animation override forwarded to the API
+- `settleMs` - explicit wait after the operation
 
 Python client defaults: `open_settle_ms` / `close_settle_ms` = 270.
 
@@ -112,7 +112,7 @@ plus post-create flags
 `resizable`, `movable`, `minimizable`, `maximizable`, `closable`, `preventClose`.
 
 Default window content is the real example `HomePage`. When `preventClose` is set,
-soft close shows ConfirmDialog — pass `confirmClose: true|false` on `close_window`.
+soft close shows ConfirmDialog - pass `confirmClose: true|false` on `close_window`.
 
 Dialogs: same sizes + `modal`, `isResizable`, `showOnInit`, `parentId` (required).
 

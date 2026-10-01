@@ -150,7 +150,7 @@ void main() {
 
     test('aborting one independent root leaves a parallel root cascade pending', () async {
       final h = LifecycleTestHarness();
-      // Two independent trees: 1→2 and 10→11
+      // Two independent trees: 1->2 and 10->11
       h.seedWindow(1);
       h.seedWindow(2, parentId: 1);
       h.seedWindow(10);

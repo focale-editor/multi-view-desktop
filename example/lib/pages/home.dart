@@ -458,7 +458,7 @@ class _HomePageState extends State<HomePage> with WindowListener {
                   'openWindow',
                   subtitle: 'Open a new window',
                   onTap: () async {
-                    final openRes = await openWindow(
+                    await openWindow(
                       (ctx, viewId) {
                         // final mvd = MultiViewDesktop.fromId(viewId);
                         // Future.delayed(Duration(seconds: 2), () => mvd.completeShow());
@@ -563,7 +563,7 @@ class _HomePageState extends State<HomePage> with WindowListener {
                   _tile(
                     'circlesDialog',
                     subtitle: 'Native dialog 1000×640, 400 animated translucent circles',
-                    onTap: () async{
+                    onTap: () async {
                       final res = await openDialog<String?>(
                         (ctx, viewId) => const CirclesScreen(),
                         options: const DialogOptions(

@@ -58,18 +58,18 @@ extension NSRect {
 
 // MARK: - Per-window state
 
-/// Mutable close / maximize flags for one [NSWindow], keyed by Flutter view ID.
+/// Per-window close/maximize flags, keyed by Flutter view ID.
 class WindowState {
-    /// When `true`, `windowShouldClose` emits `close` and returns `false`.
+    /// When true, windowShouldClose emits close and returns false.
     var isPreventClose: Bool = false
-    /// When `true`, `windowShouldClose` may destroy the window.
+    /// When true, windowShouldClose may destroy the window.
     var isConfirmClose: Bool = false
     var isMaximized: Bool = false
-    /// window: `false` until cascade / pre-close logic finishes.
+    /// false until cascade / pre-close logic finishes.
     var isPreConfirm: Bool = false
     /// Borderless child popup; skips soft-close and last-window accounting.
     var isPopup: Bool = false
-    /// Last opacity requested by Dart. `show` must not clobber this.
+    /// Last opacity from Dart; show must not overwrite it.
     var opacity: CGFloat = 1.0
 }
 
@@ -107,19 +107,18 @@ class MultiviewDesktopImpl: NSObject, NSWindowDelegate {
     // All managed OS windows keyed by FlutterViewIdentifier.
     var windows: [Int64: NSWindow] = [:]
 
-    /// Flutter view ID of the main window (set in [registerMain] for [mainWindowRef]).
+    /// Main window Flutter view ID (from registerMain / mainWindowRef).
     private(set) var mainViewId: Int64?
 
     var windowStates: [Int64: WindowState] = [:]
-    /// Maps a sheet (modal dialog) viewId to the NSWindow it is attached to.
-    /// Populated in [createModalDialogWindow]; cleared when the sheet is dismissed.
+    /// Sheet (modal) viewId -> parent NSWindow. Cleared when the sheet dismisses.
     private var sheetParents: [Int64: NSWindow] = [:]
-    /// Maps a popup viewId to its parent NSWindow.
+    /// Popup viewId -> parent NSWindow.
     private var popupParents: [Int64: NSWindow] = [:]
     private var channel: FlutterMethodChannel?
     private var activationObserver: NSObjectProtocol?
 
-    /// Mirrors Dart [CloseMode]: `false` when windows are hidden instead of closed ([CloseMode.macos]).
+    /// Matches Dart close policy: false when windows are hidden instead of closed.
     private var terminateAfterLastWindowClosed: Bool = true
 
     private struct TaskbarMenuEntry {
@@ -146,7 +145,7 @@ class MultiviewDesktopImpl: NSObject, NSWindowDelegate {
 
     // MARK: - Window registration
 
-    /// Tracks [window] and installs `NSWindowDelegate` for lifecycle events.
+    /// Track window and install NSWindowDelegate for lifecycle events.
     func registerWindow(_ window: NSWindow, viewId: Int64) {
         windows[viewId] = window
         windowStates[viewId] = WindowState()
@@ -278,10 +277,9 @@ class MultiviewDesktopImpl: NSObject, NSWindowDelegate {
         return showHiddenWindowsIfNeeded()
     }
 
-    /// Shows hidden windows (`orderOut`), e.g. after [CloseMode.macos] or dock click.
-    ///
-    /// When [requirePriorUserHide] is true (activation observer), skips restore until a window
-    /// was hidden through the plugin; startup [orderOut] does not count.
+    /// Shows windows that were orderOut'd (e.g. dock click / hide-on-close).
+    /// If requirePriorUserHide is true, skip until a plugin hide happened
+    /// (startup orderOut alone does not count).
     @discardableResult
     private func showHiddenWindowsIfNeeded() -> Bool {
         guard !windows.isEmpty else {
@@ -680,8 +678,7 @@ class MultiviewDesktopImpl: NSObject, NSWindowDelegate {
         return viewId
     }
 
-    /// `orderOut` drops the child-window link. Parent is kept in [popupParents]
-    /// so [showPopupWindow] can call `addChildWindow` again.
+    /// orderOut drops the child link; parent stays in popupParents for re-attach.
     func hidePopupWindow(_ window: NSWindow, viewId: Int64) {
         window.orderOut(nil)
     }
@@ -714,9 +711,8 @@ class MultiviewDesktopImpl: NSObject, NSWindowDelegate {
         window.close()
     }
 
-    /// Soft-close gate events must not call Dart synchronously from
-    /// `windowShouldClose` while the close button is in tracking mode.
-    /// Flutter microtasks (any `await` in the handler) do not run until tracking ends.
+    /// Defer soft-close Dart events off `windowShouldClose` while the traffic
+    /// light is tracking; microtasks from `await` do not run until tracking ends.
     private func emitSoftCloseGate(_ eventName: String, viewId: Int64) {
         if mvdFfiEventsAttached() {
             DispatchQueue.main.async { [weak self] in
@@ -727,10 +723,8 @@ class MultiviewDesktopImpl: NSObject, NSWindowDelegate {
         emitOnEvent(eventName, viewId: viewId)
     }
 
-    /// Emits the next soft-close event for [viewId].
-    ///
-    /// Returns `false` when an event was emitted and the window must stay open;
-    /// returns `true` when all soft-close flags are satisfied.
+    /// Soft-close gate: emit next event or allow destroy.
+    /// Returns false if an event was emitted (keep window open).
     @discardableResult
     private func advanceSoftClose(viewId: Int64) -> Bool {
         let state = windowStates[viewId] ?? WindowState()
@@ -762,8 +756,7 @@ class MultiviewDesktopImpl: NSObject, NSWindowDelegate {
         sheet.close()
     }
 
-    /// Requests soft close, working around AppKit ignoring [NSWindow.performClose]
-    /// while [NSWindow.attachedSheet] is non-nil.
+    /// Soft-close when performClose is ignored because attachedSheet != nil.
     func requestSoftClose(viewId: Int64, window: NSWindow) {
         if window.attachedSheet != nil {
             _ = advanceSoftClose(viewId: viewId)
@@ -1147,17 +1140,15 @@ class MultiviewDesktopImpl: NSObject, NSWindowDelegate {
             result(nil)
 
         case "setPopupBounds":
-            // Atomic position + size update.
-            // When size is unchanged, use setFrameOrigin so that
-            // FlutterView.setFrameSize is never called → ResizeSynchronizer
-            // is not triggered → no Impeller texture-size crash on macOS.
+            // Prefer setFrameOrigin when size is unchanged so FlutterView
+            // setFrameSize / ResizeSynchronizer is skipped (Impeller crash on macOS).
             let w = args?["width"] as? CGFloat ?? window.frame.width
             let h = args?["height"] as? CGFloat ?? window.frame.height
             let x = args?["x"] as? CGFloat ?? window.frame.topLeft.x
             let y = args?["y"] as? CGFloat ?? window.frame.topLeft.y
             let tolerance: CGFloat = 0.5
             let sizeChanged =
-                abs(window.frame.width  - w) > tolerance ||
+                abs(window.frame.width - w) > tolerance ||
                 abs(window.frame.height - h) > tolerance
             var f = window.frame
             if sizeChanged {
@@ -1405,13 +1396,7 @@ class MultiviewDesktopImpl: NSObject, NSWindowDelegate {
 
     // MARK: - Helpers
 
-    /// Brings [window] to the front.
-    ///
-    /// Dock / `AppleSpacesSwitchOnActivate` applies the Space switch *asynchronously*
-    /// after activate/reopen. A synchronous `orderFront`+`makeKey` while the window
-    /// is still `isOnActiveSpace` loses that race: the pending teleport runs afterward.
-    /// Deferred retries re-check: once the window is off the active Space,
-    /// `makeKeyAndOrderFront` pulls Mission Control back to it.
+    /// Bring window to front. Deferred retries help when Spaces switch is async.
     func focusWindow(_ window: NSWindow) {
         if window.isMiniaturized {
             window.deminiaturize(nil)
@@ -1421,11 +1406,7 @@ class MultiviewDesktopImpl: NSObject, NSWindowDelegate {
         NSApp.activate(ignoringOtherApps: true)
     }
 
-    /// Whether [window] currently has user focus.
-    ///
-    /// `isKeyWindow` alone is not enough: it can stay `true` for a window that
-    /// is ordered behind another window of this app, or for a window on another
-    /// Space while the user is looking at a different Space.
+    /// True if this window is key, visible, and frontmost on the active Space.
     func isWindowFocused(_ window: NSWindow) -> Bool {
         guard NSApp.isActive, window.isKeyWindow, window.isVisible, !window.isMiniaturized else {
             return false
@@ -1441,7 +1422,7 @@ class MultiviewDesktopImpl: NSObject, NSWindowDelegate {
         return false
     }
 
-    /// Sends `onEvent` to Dart with [eventName] and optional [viewId] / extra [arg].
+    /// Emit onEvent to Dart (FFI or method channel).
     func emitOnEvent(_ eventName: String, viewId: Int64 = -1, arg: Int64 = -1) {
         if mvdFfiEventsAttached() {
             _ = mvdFfiTryEmit(eventName, viewId: viewId, arg: arg)
@@ -1460,7 +1441,6 @@ class MultiviewDesktopImpl: NSObject, NSWindowDelegate {
         channel?.invokeMethod("onEvent", arguments: arguments)
     }
 
-    /// Sends `onEvent` to Dart with [eventName] and [viewId].
     private func emitEvent(_ eventName: String, viewId: Int64) {
         emitOnEvent(eventName, viewId: viewId)
     }

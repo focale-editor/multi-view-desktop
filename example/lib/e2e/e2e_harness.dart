@@ -115,9 +115,9 @@ class E2eHarness {
         throw StateError('Unknown method "$method". Known: $methods');
       }
 
-      _log('← $method $params');
+      _log('<- $method $params');
       final result = await handler(E2eRequest(method: method, params: params));
-      _log('→ $method ok');
+      _log('-> $method ok');
       await _writeJson(request.response, {'ok': true, 'result': result});
     } catch (e, st) {
       _log('error: $e\n$st');

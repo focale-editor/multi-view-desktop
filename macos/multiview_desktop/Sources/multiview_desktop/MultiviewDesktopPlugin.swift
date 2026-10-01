@@ -46,10 +46,8 @@ public class MultiviewDesktopPlugin: NSObject, FlutterPlugin {
         MvdScreenRetrieverPlugin.register(with: registrar.messenger)
     }
 
-    /// Fallback when `applicationShouldTerminate` is not overridden in AppDelegate.
-    ///
-    /// With the recommended `applicationShouldTerminate` forward, last-window policy is
-    /// applied inside [MultiviewDesktopImpl.handleApplicationShouldTerminate] instead.
+    /// Fallback when AppDelegate does not override applicationShouldTerminate.
+    /// With the recommended forward, last-window policy runs in handleApplicationShouldTerminate.
     public static func applicationShouldTerminateAfterLastWindowClosed() -> Bool {
         MultiviewDesktopImpl.shared.shouldTerminateAfterLastWindowClosed()
     }

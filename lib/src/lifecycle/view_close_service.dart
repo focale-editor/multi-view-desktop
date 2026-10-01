@@ -332,7 +332,7 @@ class ViewCloseService {
     }
 
     // Always soft-close the root after force-closing secondaries (preventClose may
-    // show a confirm dialog and abort — that is handled by waitWindow on the root).
+    // show a confirm dialog and abort - that is handled by waitWindow on the root).
     delegate.invoke<void>(rootId, () => _preConfirmCloseCallable(rootId), dialogSupports: true);
   }
 

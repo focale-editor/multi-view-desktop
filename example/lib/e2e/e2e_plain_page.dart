@@ -3,7 +3,7 @@ import 'package:multiview_desktop/multiview_desktop.dart';
 
 /// Minimal window content for E2E (no [HomePage] ConfirmDialog).
 ///
-/// Not for preventClose probes — those use [HomePage] + `confirmClose`.
+/// Not for preventClose probes - those use [HomePage] + `confirmClose`.
 class E2ePlainPage extends StatelessWidget {
   const E2ePlainPage({super.key, this.label = 'E2E window'});
 

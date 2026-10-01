@@ -1,13 +1,10 @@
-// Coordinates soft/force cascade waits per view id.
-// Independent window trees may close in parallel — abort/clear must not
-// complete waits that belong to another root.
+// Soft/force cascade waits per view id.
+// Parallel trees: abort/clear for one root must not complete another root's waits.
 import 'dart:async';
 
 import 'package:multiview_desktop/src/log/mvd_log.dart';
 
-///
-/// Each view ID gets a `Completer` completed with `true` when the window closes
-/// or `false` when the user cancels via `ViewsManager.cancelCascadeClose`.
+/// Completer per view: `true` on close, `false` on `cancelCascadeClose`.
 class CascadeCloseService {
   CascadeCloseService();
 

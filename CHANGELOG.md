@@ -5,12 +5,14 @@
   min/max, visibility, focus, alwaysOnTop, and similar. Keep `await` for
   `openWindow` / `openDialog` / `close*` / `setSize` / `setPosition` /
   `setAlignment` / `center` / `setAspectRatio` and popup open-close
-- [Check README] `PopupView` on macOS, Windows, and Linux (X11). Disabled on
-  Wayland: popup needs client-side positioning (`GDK_BACKEND=x11`)
-- [Check README] Window and popup animations (`ViewAnimationConfig`,
-  `AnimationSettings`, `setForceAnimation`)
-- [Check README] `MultiViewDesktop.screen` for connected displays. Physical
-  window bounds (`getPhysicalBounds` / `setPhysicalBounds`) for mixed-DPI layouts
+- `PopupView` on macOS, Windows, and Linux (X11). Disabled on Wayland: popup
+  needs client-side positioning (`GDK_BACKEND=x11`)
+- Window and popup animations (`ViewAnimationConfig`, `AnimationSettings`,
+  `setForceAnimation`)
+- Deferred show via `showOnInit: false` + `completeShow()`
+- Optional file logger (`MultiAppConfig.fileLogParams` / `LogParams`)
+- `MultiViewDesktop.screen` for connected displays. Physical window bounds
+  (`getPhysicalBounds` / `setPhysicalBounds`) for mixed-DPI layouts
 
 ## 1.2.2
 

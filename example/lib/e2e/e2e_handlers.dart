@@ -39,7 +39,7 @@ Map<String, E2eHandler> buildExampleE2eHandlers(ExampleE2eHandlerDeps deps) {
 
   /// Window content: always the real example [HomePage] (ConfirmDialog on preventClose).
   ///
-  /// Optional `content`: `home` (default) | `plain` (minimal, no listener — not for preventClose).
+  /// Optional `content`: `home` (default) | `plain` (minimal, no listener - not for preventClose).
   Widget Function(BuildContext context, int viewId) windowBuilderFor(
     E2eRequest req,
   ) {
@@ -119,7 +119,7 @@ Map<String, E2eHandler> buildExampleE2eHandlers(ExampleE2eHandlerDeps deps) {
       final created = now.difference(dialogsBefore);
       if (created.isNotEmpty) {
         final id = created.reduce((a, b) => a > b ? a : b);
-        // Match ConfirmDialog buttons: Close → true, Cancel → false (not null).
+        // Match ConfirmDialog buttons: Close -> true, Cancel -> false (not null).
         await MultiViewDesktop.fromId(id).closeDialog<bool>(accept);
         return true;
       }
@@ -149,7 +149,7 @@ Map<String, E2eHandler> buildExampleE2eHandlers(ExampleE2eHandlerDeps deps) {
         win.cancelCascadeClose();
         throw StateError(
           'Prevent-close ConfirmDialog did not appear within ${confirmTimeoutMs}ms '
-          '(viewId=$viewId). preventClose windows use HomePage ConfirmDialog — '
+          '(viewId=$viewId). preventClose windows use HomePage ConfirmDialog - '
           'pass confirmClose:true|false.',
         );
       }
@@ -174,7 +174,7 @@ Map<String, E2eHandler> buildExampleE2eHandlers(ExampleE2eHandlerDeps deps) {
     return {
       'closed': ok,
       'viewId': viewId,
-      if (confirmClose != null) 'confirmClose': confirmClose,
+      'confirmClose': ?confirmClose,
       if (confirmClose != null) 'confirmAnswered': confirmAnswered,
     };
   }
@@ -329,7 +329,7 @@ Map<String, E2eHandler> buildExampleE2eHandlers(ExampleE2eHandlerDeps deps) {
         mode = CloseMode.values.firstWhere((m) => m.name == name);
       }
       // Same as softCloseView: answer HomePage ConfirmDialog while closeApp awaits
-      // soft-close of a preventClose root (e.g. forceSecondary → soft-close primary).
+      // soft-close of a preventClose root (e.g. forceSecondary -> soft-close primary).
       final confirmClose = req.optional<bool>('confirmClose');
       final confirmTimeoutMs =
           req.optional<num>('confirmTimeoutMs')?.toInt() ?? 8000;
@@ -355,7 +355,7 @@ Map<String, E2eHandler> buildExampleE2eHandlers(ExampleE2eHandlerDeps deps) {
         }
         // HomePage Cancel leaves cancelCascadeClose commented out; return false
         // from onWindowClose should abort, but after forceSecondary the root wait
-        // can stay pending — abort explicitly so closeApp can finish.
+        // can stay pending - abort explicitly so closeApp can finish.
         if (confirmClose == false) {
           for (final id in List<int>.from(MultiViewDesktop.allWindowViewIds)) {
             MultiViewDesktop.fromId(id).cancelCascadeClose();
@@ -382,7 +382,7 @@ Map<String, E2eHandler> buildExampleE2eHandlers(ExampleE2eHandlerDeps deps) {
       );
       return {
         'allClosed': ok,
-        if (confirmClose != null) 'confirmClose': confirmClose,
+        'confirmClose': ?confirmClose,
         if (confirmClose != null) 'confirmAnswered': confirmAnswered,
       };
     },

@@ -14,39 +14,41 @@ Unlike libraries that spawn a new Flutter engine per window, multiview_desktop u
 - [Platform Support](#platform-support)
 - [Architecture overview](#architecture-overview)
 - [Setup](#setup)
-  - [Linux](#linux-setup)
-  - [Windows](#windows-setup)
-  - [macOS](#macos-setup)
+ - [Linux](#linux-setup)
+ - [Windows](#windows-setup)
+ - [macOS](#macos-setup)
 - [Usage](#usage)
-  - [Entry point](#entry-point)
-  - [Entry shell (AppShell)](#entry-shell-appshell)
-  - [Open a window](#open-a-window)
-  - [Open a dialog](#open-a-dialog)
-  - [Open a popup](#open-a-popup)
-  - [Animations](#animations)
-  - [Window options](#window-options)
-  - [Dialog options](#dialog-options)
-  - [Window events](#window-events)
-  - [Communication between windows](#communication-between-windows)
-  - [Confirm before closing](#confirm-before-closing)
-  - [Close mode](#close-mode)
-  - [Frameless windows](#frameless-windows)
-  - [Watching the window list](#watching-the-window-list)
-  - [Window observers](#window-observers)
-  - [Application config](#application-config)
+ - [Entry point](#entry-point)
+ - [Entry shell (AppShell)](#entry-shell-appshell)
+ - [Open a window](#open-a-window)
+ - [Open a dialog](#open-a-dialog)
+ - [Open a popup](#open-a-popup)
+ - [Deferred show (`showOnInit`)](#deferred-show-showoninit)
+ - [Animations](#animations)
+ - [Window options](#window-options)
+ - [Dialog options](#dialog-options)
+ - [Window events](#window-events)
+ - [Communication between windows](#communication-between-windows)
+ - [Confirm before closing](#confirm-before-closing)
+ - [Close mode](#close-mode)
+ - [Frameless windows](#frameless-windows)
+ - [Watching the window list](#watching-the-window-list)
+ - [Window observers](#window-observers)
+ - [Application config](#application-config)
+ - [Logging](#logging)
 - [API](#api)
-  - [MultiViewDesktop](#multiviewdesktop-1)
-  - [AppShell](#appshell)
-  - [WindowListener](#windowlistener-1)
-  - [WindowObserver](#windowobserver-1)
-  - [WindowCommunicator](#windowcommunicator-1)
-  - [WindowOptions](#windowoptions-1)
-  - [DialogOptions](#dialogoptions-1)
-  - [MultiAppConfig](#multiappconfig-1)
-  - [CloseMode](#closemode-1)
-  - [ViewAnimationConfig](#viewanimationconfig)
-  - [PopupView](#popupview)
-  - [Widgets](#widgets-1)
+ - [MultiViewDesktop](#multiviewdesktop-1)
+ - [AppShell](#appshell)
+ - [WindowListener](#windowlistener-1)
+ - [WindowObserver](#windowobserver-1)
+ - [WindowCommunicator](#windowcommunicator-1)
+ - [WindowOptions](#windowoptions-1)
+ - [DialogOptions](#dialogoptions-1)
+ - [MultiAppConfig](#multiappconfig-1)
+ - [CloseMode](#closemode-1)
+ - [ViewAnimationConfig](#viewanimationconfig)
+ - [PopupView](#popupview)
+ - [Widgets](#widgets-1)
 
 ---
 
@@ -69,6 +71,35 @@ This is the key difference from multi-engine approaches:
 - Opening a window does not allocate a new VM, engine, or isolate.
 - Widgets, streams, `ChangeNotifier` instances, and any Dart object can be shared directly across windows. No serialization or IPC channel is needed.
 - `WindowCommunicator` is provided as a lightweight routing helper, but sharing a `ValueNotifier` or calling a method on a shared object is equally valid and often simpler.
+
+### Native bridge (FFI, 2.0)
+
+From 2.0, native window calls use **FFI** instead of `MethodChannel`.
+
+Most chrome / state APIs are **synchronous** - do not `await` them:
+
+```dart
+final win = MultiViewDesktop.of(context);
+win.setTitle('Settings');
+win.setAlwaysOnTop(true);
+win.focus();
+final focused = win.isFocused();
+```
+
+Keep `await` only where the operation is inherently asynchronous (create/close animation, geometry animation, or a Future-returning API):
+
+```dart
+await openWindow((_, __) => const SettingsPage());
+await win.setSize(const Size(900, 640));
+await win.setPosition(const Offset(100, 80));
+await win.closeWindow();
+```
+
+Typical sync surface: title, title-bar style, opacity, brightness, shadow, min/max size getters/setters (except aspect-ratio resize), visibility (`show` / `hide`), focus, maximize / minimize / full-screen flags, always-on-top, mouse pass-through, prevent-close, and similar.
+
+Typical async surface: `openWindow` / `openDialog` / `closeWindow` / `closeDialog` / `closeApp`, `setSize` / `setPosition` / `setAlignment` / `center` / `setDialogAlignment` / `setAspectRatio`, and popup `open` / `close` / `toggle`.
+
+You do not call the FFI layer yourself. Platform setup (runner / `MainFlutterWindow` / `AppDelegate`) is unchanged in shape from 1.x; only the Dart call style above matters for migrating app code.
 
 ---
 
@@ -384,7 +415,7 @@ void Win32Window::CenterOnScreen() {
   }
   RECT rect{};
   GetWindowRect(window_handle_, &rect);
-  const int width  = rect.right  - rect.left;
+  const int width  = rect.right - rect.left;
   const int height = rect.bottom - rect.top;
   const HMONITOR monitor =
       MonitorFromWindow(window_handle_, MONITOR_DEFAULTTONEAREST);
@@ -549,6 +580,7 @@ void main() {
       generalParams: MultiPlatformParams(
         closeMode: CloseMode.softCascade,
         enableDynamicAnchor: true,
+        animation: ViewAnimationConfig.defaults,
         menuItems: [
           TaskbarMenuItem(
             title: 'Open new window',
@@ -558,6 +590,7 @@ void main() {
       ),
       macosParams: MacosPlatformParams(
         saveLastWindowToReopen: true,
+        closeAppAfterLastWindowClosed: true,
         onTerminate: () async {
           final allClosed = await MultiViewDesktop.closeApp(closeMode: CloseMode.softCascade);
           return allClosed;
@@ -571,6 +604,7 @@ void main() {
         title: 'My App',
       ),
       globalDialogOptions: DialogOptions(modal: false),
+      fileLogParams: const LogParams(enable: false),
       observers: [AppWindowObserver()],
     ),
   );
@@ -746,6 +780,8 @@ Same window restrictions as modeless, plus the parent is blocked natively while 
 
 On **macOS only**, a modal dialog is shown as a sheet fixed to the parent window: it stays centered on the parent and cannot be moved outside it. On **Windows and Linux**, a modal dialog still blocks the parent, but the user can drag it anywhere on screen, including outside the parent bounds.
 
+Open/close fade from `ViewAnimationConfig` applies to modal dialogs only on **Windows**. On macOS and Linux the native presentation already animates (sheet / WM), so the library fade is skipped. See [Animations](#animations).
+
 #### Platform differences
 
 | Behavior | macOS | Windows | Linux |
@@ -754,6 +790,7 @@ On **macOS only**, a modal dialog is shown as a sheet fixed to the parent window
 | Modal positioning | Sheet on parent; fixed inside parent, not positioned from Dart | Centered inside parent at open; can move outside parent | Can move anywhere on screen |
 | Modal fixed inside parent | yes | no | no |
 | Modal blocks parent input | yes (sheet) | yes (owner window) | yes (transient + input lock) |
+| Modal library fade | no (native sheet) | yes | no (native / WM) |
 | Modeless blocks parent | no | no | no |
 
 See [Dialog options](#dialog-options) for `DialogOptions` fields and [Window observers](#window-observers) for dialog lifecycle callbacks.
@@ -817,9 +854,57 @@ See [PopupView](#popupview) for the API summary.
 
 ---
 
+### Deferred show (`showOnInit`)
+
+`showOnInit` (default `true`) is available on both `WindowOptions` and `DialogOptions`. When `false`, the view is created and attached to the Flutter tree, but the native surface stays hidden until you call `completeShow()` on that view.
+
+Use this to prepare content (load data, wait for first layout) before the OS window appears.
+
+```dart
+await openWindow(
+  (context, viewId) {
+    final win = MultiViewDesktop.fromId(viewId);
+    // Prepare UI, then reveal:
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      await loadSettings();
+      win.completeShow();
+    });
+    return const SettingsPage();
+  },
+  options: const WindowOptions(
+    showOnInit: false,
+    size: Size(900, 640),
+  ),
+);
+```
+
+```dart
+await openDialog(
+  (context, viewId) {
+    final dialog = MultiViewDesktop.fromId(viewId);
+    Future<void>.delayed(const Duration(milliseconds: 500), dialog.completeShow);
+    return const ConfirmDialog();
+  },
+  parentContext: context,
+  options: const DialogOptions(showOnInit: false, modal: false),
+);
+```
+
+Notes:
+
+- Call `completeShow()`, not `show()`. `show()` is the normal visibility API for an already-shown-or-hidden window; `completeShow` finishes the create pipeline when `showOnInit` was `false`.
+- Early `completeShow` before the create path registers the waiter is buffered and applied when create reaches the wait (safe for post-frame / delayed callbacks).
+- For **modal** dialogs, `completeShow` gates the native attach step (`beginSheet` on macOS / equivalent on other platforms), not a plain `show`.
+- `openWindow` / `openDialog` Futures still complete only after the create cycle finishes (including `completeShow` when deferred).
+
+---
+
 ### Animations
 
-Native window animations are configured once in `MultiAppConfig.generalParams.animation`. By default, windows, modeless dialogs, and popups fade in and out; size/position animation is off; modal dialogs do not fade.
+Native window animations are configured once in `MultiAppConfig.generalParams.animation`. By default, windows, modeless dialogs, and popups fade in and out; size/position animation is off.
+
+**Modal dialogs:** library open/close fade is Windows-only. macOS (sheet) and Linux (WM) use their own presentation animation.
+
 
 ```dart
 runMultiApp(
@@ -904,6 +989,7 @@ These fields exist on both `WindowOptions` and `DialogOptions` with the same mea
 | `windowButtonVisibility` | `bool?` | Show or hide traffic-light / caption buttons when the bar is hidden. On dialogs, minimize and maximize stay disabled regardless of this flag. |
 | `title` | `String?` | Native window title. |
 | `alwaysOnTop` | `bool?` | Keep the view above other application windows. |
+| `showOnInit` | `bool?` | Show immediately after creation (default `true`). When `false`, call `completeShow()` to reveal. See [Deferred show](#deferred-show-showoninit). |
 | `shellOverrides` | `ViewShellOverrides?` | Per-view entry shell (theme, locale, router). See [Entry shell (AppShell)](#entry-shell-appshell). |
 
 Built-in default content size for **windows** when `size` is omitted: 800x600.
@@ -945,7 +1031,8 @@ Reuse [shared appearance fields](#shared-appearance-fields) for `size`, `title`,
 |---|---|---|---|
 | `modal` | `bool?` | `false` | When true, blocks the parent at the OS level while the dialog is open. See [Open a dialog](#open-a-dialog) for platform behavior. |
 | `isResizable` | `bool?` | platform | Whether the user can resize the dialog by dragging edges. |
-| `showOnInit` | `bool?` | `true` | Show the dialog immediately after creation. Set to `false` to create it hidden and call `show()` later. |
+
+`showOnInit` is a shared field (see above). For dialogs it has the same meaning as for windows; for modal dialogs it delays the native parent attach until `completeShow()`.
 
 #### Restrictions (not configurable)
 
@@ -1002,9 +1089,11 @@ class _MyPageState extends State<MyPage> with WindowListener {
   }
 
   @override
-  void onWindowClose() {
+  FutureOr<bool> onWindowClose() {
     // The user pressed the close button or closeWindow was called.
     // If setPreventClose is true this fires instead of actually closing.
+    // Return false to abort softCascade for this window.
+    return true;
   }
 
   @override
@@ -1140,7 +1229,7 @@ ValueListenableBuilder<ThemeMode>(
 
 ### Confirm before closing
 
-Enable close interception on the window and respond in `onWindowClose`:
+Enable close interception on the window and respond in `onWindowClose`. The callback may return `FutureOr<bool>`: return `true` to continue a cascade close, `false` to abort it (same effect as `cancelCascadeClose()` for this window's cascade wait).
 
 ```dart
 class _MyPageState extends State<MyPage> with WindowListener {
@@ -1153,7 +1242,7 @@ class _MyPageState extends State<MyPage> with WindowListener {
   }
 
   @override
-  void onWindowClose() async {
+  Future<bool> onWindowClose() async {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (_) => AlertDialog(
@@ -1174,7 +1263,9 @@ class _MyPageState extends State<MyPage> with WindowListener {
       final win = MultiViewDesktop.of(context);
       win.setPreventClose(false);
       await win.closeWindow();
+      return true;
     }
+    return false; // abort cascade if this window was part of softCascade
   }
 }
 ```
@@ -1200,15 +1291,17 @@ MultiViewDesktop.setCloseMode(CloseMode.softCascade);
 
 `CloseMode.softCascade` is the default. It is the safest mode for apps that show unsaved-data dialogs, because each window gets a chance to respond before it is closed.
 
-To abort a cascade close from inside a secondary window (for example after a user presses Cancel in a dialog):
+To abort a cascade close from inside a secondary window (for example after a user presses Cancel in a dialog), return `false` from `onWindowClose` or call `cancelCascadeClose()`:
 
 ```dart
 @override
-void onWindowClose() async {
+Future<bool> onWindowClose() async {
   final confirmed = await showUnsavedChangesDialog();
   if (!confirmed) {
     MultiViewDesktop.of(context).cancelCascadeClose();
+    return false;
   }
+  return true;
 }
 ```
 
@@ -1416,6 +1509,7 @@ runMultiApp(
     generalParams: MultiPlatformParams(
       closeMode: CloseMode.softCascade,
       enableDynamicAnchor: true,
+      animation: ViewAnimationConfig.defaults,
       menuItems: [
         TaskbarMenuItem(
           title: 'Open new window',
@@ -1425,6 +1519,10 @@ runMultiApp(
     ),
     macosParams: MacosPlatformParams(
       saveLastWindowToReopen: true,
+      closeAppAfterLastWindowClosed: true,
+      onTaskbarTap: () {
+        // Dock icon clicked while the app is running.
+      },
       onTerminate: () async {
         final allClosed = await MultiViewDesktop.closeApp(closeMode: CloseMode.softCascade);
         return allClosed;
@@ -1435,6 +1533,7 @@ runMultiApp(
       title: 'My App',
     ),
     globalDialogOptions: DialogOptions(modal: false, size: Size(480, 360)),
+    fileLogParams: const LogParams(enable: true, sizeKb: 2048),
     observers: [AppWindowObserver()],
   ),
 );
@@ -1444,15 +1543,49 @@ runMultiApp(
 
 `menuItems`: initial taskbar / dock context menu entries (Linux, macOS, and Windows). Replaced entirely by `MultiViewDesktop.setMenuItems`. Optional `iconAsset` per item is supported on Windows and macOS; Linux shows the title only.
 
-`saveLastWindowToReopen` (macOS): when the user closes all windows and the app stays in the dock, re-opening from the dock icon restores the last window.
+`animation`: native open/close fade and optional geometry animation. See [Animations](#animations).
+
+`saveLastWindowToReopen` (macOS): when the user closes all windows and the app stays in the dock, re-opening from the dock icon restores the last window. Ignored when using `closeApp`, `onTerminate`, or `CloseMode.destroy`.
+
+`closeAppAfterLastWindowClosed` (macOS): when `true`, quitting after the last window closes terminates the process. Not applied when `saveLastWindowToReopen` is `true`.
 
 `onTerminate` (macOS): async callback invoked on Cmd+Q and Quit from the menu. Return `true` to quit the process, `false` to cancel. Requires `applicationShouldTerminate` in `AppDelegate` (see [macOS setup](#macos-setup)).
+
+`onTaskbarTap` (macOS): called when the user clicks the dock icon. Requires `applicationShouldHandleReopen` in `AppDelegate`.
 
 `globalWindowOptions`: default [WindowOptions](#window-options) merged into every `openWindow` call.
 
 `globalDialogOptions`: default [DialogOptions](#dialog-options) merged into every `openDialog` call.
 
+`fileLogParams`: optional package file logger. See [Logging](#logging).
+
 `observers`: list of [WindowObserver](#window-observers) instances; receives window and dialog lifecycle callbacks. See [Window observers](#window-observers) for dialog-specific methods (`onDialogOpened`, `onDialogClose`, `onDialogEvent`).
+
+---
+
+### Logging
+
+Diagnostics can be written to `mvd.log` via `MultiAppConfig.fileLogParams` (`LogParams`). Off by default.
+
+```dart
+runMultiApp(
+  home: (context, id) => const MyApp(),
+  config: MultiAppConfig(
+    fileLogParams: const LogParams(enable: true, sizeKb: 1024),
+  ),
+);
+```
+
+| Field | Default | Description |
+|---|---|---|
+| `enable` | `false` | When `true`, append package diagnostics to `mvd.log`. |
+| `sizeKb` | `1024` | Max size of `mvd.log` in kilobytes. On overflow the file is rotated to `mvd.log.prev`. |
+
+Log directory (same in debug and release):
+
+- macOS: `~/Library/Caches/multiview_desktop` (under the app container when sandboxed)
+- Windows: `%LOCALAPPDATA%/multiview_desktop/logs`
+- Linux: `${XDG_CACHE_HOME:-~/.cache}/multiview_desktop`
 
 ---
 
@@ -1603,6 +1736,10 @@ Returns the current anchor view ID, or `null` if none is set.
 ##### setForceAnimation(ViewAnimationType type, AnimationSettings animation) -> void
 
 Stages a one-shot force animation for the next matching operation on this view. Runs even if that type is disabled in config. Not used for popups. See [Animations](#animations).
+
+##### completeShow() -> void
+
+Finishes a deferred create when `WindowOptions.showOnInit` / `DialogOptions.showOnInit` was `false`. See [Deferred show](#deferred-show-showoninit). Do not confuse with `show()`.
 
 ##### closeWindow({AnimationSettings? animation}) -> Future\<bool\>
 
@@ -2007,9 +2144,9 @@ Factory: `ViewShellOverrides.appearance(AppShellPatch(...))` for appearance-only
 
 Mixin for `State`. Automatically registers for events of the window that owns the widget, and unregisters on `dispose`. Override only the callbacks you need; all have empty default implementations.
 
-##### onWindowClose() -> void
+##### onWindowClose() -> FutureOr\<bool\>
 
-Fires when the window is going to close (or when close is blocked by `setPreventClose`).
+Fires when the window is going to close (or when close is blocked by `setPreventClose`). Return `true` to continue a cascade close, `false` to abort. Default implementation returns `true`.
 
 ##### onWindowFocus() -> void
 
@@ -2147,7 +2284,7 @@ Initial configuration for a dialog. Passed to `openDialog` or set as `globalDial
 
 Full field reference: [Dialog options](#dialog-options) (shared appearance fields plus dialog-only fields).
 
-Built-in default `size`: 400x300. Default `modal`: `false`. Default `showOnInit`: `true`.
+Built-in default `size`: 400x300. Default `modal`: `false`. Default `showOnInit`: `true`. When `showOnInit` is `false`, call `completeShow()` (not `show()`). See [Deferred show](#deferred-show-showoninit).
 
 Dialogs cannot use full-screen mode. Modal dialogs block the parent on all platforms; only macOS keeps them fixed inside the parent window. See [Open a dialog](#open-a-dialog).
 
@@ -2173,9 +2310,13 @@ Cross-platform parameters.
 
 macOS-specific parameters.
 
-`saveLastWindowToReopen` - restore the last window when the dock icon is clicked after all windows close. Default: `true`.
+`saveLastWindowToReopen` - restore the last window when the dock icon is clicked after all windows close. Default: `true`. Ignored for `closeApp`, `onTerminate`, and `CloseMode.destroy`.
+
+`closeAppAfterLastWindowClosed` - terminate the process after the last window closes. Default: `true`. Not applied when `saveLastWindowToReopen` is `true`.
 
 `onTerminate` - async callback on Cmd+Q and Quit from the menu. Return `true` to terminate, `false` to cancel. Default: `null` (quit immediately). Requires `applicationShouldTerminate` in `AppDelegate`.
+
+`onTaskbarTap` - called when the user clicks the dock icon. Requires `applicationShouldHandleReopen` in `AppDelegate`. Default: `null`.
 
 ##### globalWindowOptions -> WindowOptions
 
@@ -2184,6 +2325,10 @@ Default `WindowOptions` merged into every new window. Per-window options overrid
 ##### globalDialogOptions -> DialogOptions
 
 Default `DialogOptions` merged into every `openDialog` call. Per-dialog options override these.
+
+##### fileLogParams -> LogParams
+
+Optional file logger (`enable`, `sizeKb`). Default: disabled. See [Logging](#logging).
 
 ##### observers -> List\<WindowObserver\>
 
@@ -2219,7 +2364,7 @@ Application-wide native view animation policy. Pass as `MultiPlatformParams.anim
 
 ##### ViewAnimationConfig.defaults
 
-Open/close fade for windows, modeless dialogs, and popups. Geometry off. Modal dialogs do not fade.
+Open/close fade for windows, modeless dialogs, and popups. Geometry off. Modal library fade only on Windows; macOS/Linux use native presentation animation.
 
 ##### ViewAnimationConfig.disabled
 
