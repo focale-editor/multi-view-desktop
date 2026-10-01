@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:multiview_desktop/multiview_desktop.dart';
 
 import '../pages/alert_view_dialog.dart';
+import '../pages/circles_screen.dart';
 import '../pages/home.dart';
 import 'e2e_context_store.dart';
 import 'e2e_harness.dart';
@@ -398,8 +399,20 @@ Map<String, E2eHandler> buildExampleE2eHandlers(ExampleE2eHandlerDeps deps) {
       final options = parseDialogOptions(req);
       final animation = parseAnimation(req);
 
+      final content = req.optional<String>('content') ?? 'alert';
+      Widget dialogChild(BuildContext context, int viewId) {
+        final Widget body = switch (content) {
+          'circles' => const CirclesScreen(),
+          _ => defaultDialog(context, viewId),
+        };
+        if (content == 'circles') {
+          return E2eHost(store: deps.contexts, child: body);
+        }
+        return body;
+      }
+
       final entry = await openDialogEntry<String>(
-        defaultDialog,
+        dialogChild,
         parentContext: parentContext,
         options: options,
         animation: animation,
@@ -410,6 +423,7 @@ Map<String, E2eHandler> buildExampleE2eHandlers(ExampleE2eHandlerDeps deps) {
       return {
         'dialogId': entry.id,
         'parentId': parentId,
+        'content': content,
         'modal': options.modal ?? true,
         'state': windowStateMap(entry.id),
       };

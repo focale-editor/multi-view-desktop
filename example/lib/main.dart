@@ -52,7 +52,7 @@ Future<void> main() async {
     config: MultiAppConfig(
       fileLogParams: const LogParams(enable: true, sizeKb: 1024 * 10),
       generalParams: MultiPlatformParams(
-        animation: ViewAnimationConfig.disabled,
+        animation: ViewAnimationConfig.all(modalFadeInOnOpen: true, modalFadeOutOnClose:  true),
         enableDynamicAnchor: true,
         closeMode: CloseMode.softCascade,
         menuItems: [
@@ -116,7 +116,7 @@ Future<void> main() async {
         minimumSize: Size(1000, 700),
         maximumSize: Size(1400, 900),
         size: Size(1000, 700),
-        alignment: Alignment.center,
+        alignment: Alignment.bottomLeft,
         titleBarStyle: TitleBarStyle.normal,
         windowButtonVisibility: true,
         title: 'Window 1',

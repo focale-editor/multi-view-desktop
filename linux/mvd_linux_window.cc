@@ -423,12 +423,6 @@ void MvdLinuxWindow::Close() {
             view_id);
     return;
   }
-  // Guard against duplicate idle callbacks when the caller invokes Close()
-  // multiple times before the first gtk_window_close fires (e.g. the Dart
-  // side calling closeWindow() several times in quick succession).
-  // The flag is cleared by the idle callback just before it calls
-  // gtk_window_close, so if on_delete returns TRUE (blocking the close) a
-  // subsequent Call to Close() will queue a new callback correctly.
   if (close_pending) {
     MVD_LOG("Close  view_id=%" G_GINT64_FORMAT
             "  SKIP: gtk_window_close already queued", view_id);
@@ -1088,6 +1082,7 @@ void MvdLinuxWindow::Show() {
   // the coordinates in the X11 MapRequest (PPosition hint).
   ApplyPendingMove();
   gtk_widget_show(GTK_WIDGET(window));
+
   if (is_popup) {
     // Like Windows owner HWND / macOS addChildWindow: above the parent only.
     GtkWindow* parent = gtk_window_get_transient_for(window);

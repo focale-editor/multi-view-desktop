@@ -8,6 +8,7 @@ import 'package:multiview_desktop/multiview_desktop.dart';
 
 import '../utils/theme_config.dart';
 import 'alert_view_dialog.dart';
+import 'circles_screen.dart';
 import 'shell_demo.dart';
 import '../l10n/example_localizations.dart';
 
@@ -471,12 +472,12 @@ class _HomePageState extends State<HomePage> with WindowListener {
                         size: const Size(1000, 700),
                         alignment: Alignment.center,
                         title: ' ',
-                        showOnInit: true,
+                        showOnInit: false,
                         fullScreen: false,
                         // alwaysOnTop: true,
                         maximumSize: const Size(10000, 10000),
                       ),
-                      animation: AnimationSettings(duration: Duration(milliseconds: 250)),
+                      animation: AnimationSettings(duration: Duration(milliseconds: 2500)),
                     );
                   },
                 ),
@@ -558,6 +559,23 @@ class _HomePageState extends State<HomePage> with WindowListener {
                       subtitle: 'Native popup; open/close uses the curve and duration above',
                       onTap: () => _popupController.toggle(animation: _popupAnimation),
                     ),
+                  ),
+                  _tile(
+                    'circlesDialog',
+                    subtitle: 'Native dialog 1000×640, 400 animated translucent circles',
+                    onTap: () {
+                      openDialog(
+                        (ctx, viewId) => const CirclesScreen(),
+                        options: const DialogOptions(
+                          size: Size(1000, 640),
+                          title: 'Circles',
+                          modal: false,
+                          isResizable: true,
+                          showOnInit: true,
+                        ),
+                        parentContext: context,
+                      );
+                    },
                   ),
                   _tile(
                     'openDialog',

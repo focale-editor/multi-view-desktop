@@ -114,12 +114,11 @@ static void first_frame_cb(gpointer user_data, FlView* view) {
             "  (no pending move to apply)", view_id);
   }
 
-  MVD_LOG("first_frame_cb  calling gtk_widget_show on toplevel=%p",
-          static_cast<void*>(top));
-  gtk_widget_show(top);
-  MVD_LOG("first_frame_cb  calling gtk_widget_grab_focus on view=%p",
-          static_cast<void*>(view));
-  gtk_widget_grab_focus(GTK_WIDGET(view));
+  // The GtkWindow stays unmapped until Dart calls Show() (showOnInit /
+  // completeShow). Mapping it here ignores that and draws the frame early.
+  MVD_LOG("first_frame_cb  toplevel=%p left unmapped until Show()"
+          "  view_id=%" G_GINT64_FORMAT,
+          static_cast<void*>(top), view_id);
   MVD_LOG("first_frame_cb  DONE  view_id=%" G_GINT64_FORMAT, view_id);
 }
 
@@ -210,6 +209,8 @@ static int64_t create_secondary_window(const MvdCreateWindowRequest* request) {
   gdk_rgba_parse(&background_color, "#000000");
   fl_view_set_background_color(view, &background_color);
 
+  // Mark the FlView visible so it maps with the window later. This does not
+  // map the GtkWindow; Show() does that when showOnInit / completeShow runs.
   MVD_LOG("create_secondary_window  calling gtk_widget_show on view=%p",
           static_cast<void*>(view));
   gtk_widget_show(GTK_WIDGET(view));
@@ -238,7 +239,7 @@ static int64_t create_secondary_window(const MvdCreateWindowRequest* request) {
       mvd_linux_complete_secondary_window(window, view, request->token);
   MVD_LOG("create_secondary_window  END  token=%" G_GINT64_FORMAT
           "  view_id=%" G_GINT64_FORMAT
-          "  (window will be shown from first_frame_cb)", request->token,
+          "  (window stays hidden until Show())", request->token,
           view_id);
   return view_id;
 }

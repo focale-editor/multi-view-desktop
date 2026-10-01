@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 
@@ -84,9 +85,20 @@ abstract class ViewOwnerBase {
     }
 
     await waitFirstFrame(viewId);
-    final res = showWithFadeIn(viewId);
+
     if (isFullScreen) {
-      host.proxies.state.setFullScreen(viewId, isFullScreen);
+      if (Platform.isLinux) {
+        host.proxies.state.setFullScreen(viewId, isFullScreen);
+        await WidgetsBinding.instance.endOfFrame;
+      }
+    }
+
+    final res = showWithFadeIn(viewId);
+
+    if (isFullScreen) {
+      if (!Platform.isLinux) {
+        host.proxies.state.setFullScreen(viewId, isFullScreen);
+      }
     }
     await res;
   }
