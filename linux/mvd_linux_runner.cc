@@ -3,6 +3,7 @@
 #include "mvd_linux_internal.h"
 #include "mvd_linux_log.h"
 #include "mvd_linux_window.h"
+#include "mvd_view_render_lifetime.h"
 
 #include <flutter_linux/flutter_linux.h>
 #ifdef GDK_WINDOWING_X11
@@ -263,6 +264,9 @@ void multiview_desktop_linux_runner_install(GtkApplication* application) {
           static_cast<void*>(application));
   g_app = application;
   mvd_linux_set_window_created_callback(window_created_callback);
+  // Retain FlView render children across gtk_widget_destroy (Wayland draw /
+  // compositor teardown). Must be installed before any window is created.
+  mvd_install_view_render_lifetime(application);
 
   // X11: install custom error handler.
   // Must be done AFTER GDK is initialized (which happens before activate),

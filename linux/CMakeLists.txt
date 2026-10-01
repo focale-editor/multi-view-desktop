@@ -8,6 +8,7 @@ add_library(${PLUGIN_NAME} SHARED
   "multiview_desktop_plugin.cc"
   "mvd_linux_taskbar_menu.cc"
   "mvd_linux_window.cc"
+  "mvd_view_render_lifetime.cc"
   "mvd_linux_runner.cc"
   "mvd_ffi_bridge.cc"
   "mvd_linux_screen.cc"

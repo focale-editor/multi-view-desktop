@@ -211,7 +211,6 @@ static gboolean on_delete(GtkWidget* widget, GdkEvent*, gpointer data) {
     MVD_LOG("on_delete  viewId=%" G_GINT64_FORMAT
             "  is_popup=true, skipping soft-close", view_id);
     emit_event("popup-closed", view_id);
-    wm->Hide();
     FlView* fl_view = wm->view;
     MvdLinuxWindow::Unregister(view_id);
     MvdLinuxWindow::ScheduleSafeDestroy(GTK_WINDOW(widget), fl_view, false);
@@ -249,7 +248,6 @@ static gboolean on_delete(GtkWidget* widget, GdkEvent*, gpointer data) {
           view_id, static_cast<int>(was_modal), owner_id);
   emit_event("close", view_id);
 
-  wm->Hide();
   FlView* fl_view = wm->view;
   MVD_LOG("on_delete  viewId=%" G_GINT64_FORMAT
           "  calling Unregister (shared_ptr refcount before erase=%ld)",

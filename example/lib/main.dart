@@ -35,8 +35,7 @@ Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
   // Optional surface-layer E2E harness (Python scripts). Disabled unless
-  // `--dart-define=MVD_E2E=true`. Handlers are injected here — not baked into
-  // the HTTP server or into multiview_desktop core.
+  // `--dart-define=MVD_E2E=true`.
   final e2eStore = E2eContextStore();
   await maybeStartE2eHarness(handlers: buildExampleE2eHandlers(ExampleE2eHandlerDeps(contexts: e2eStore)));
 
@@ -54,7 +53,7 @@ Future<void> main() async {
       fileLogParams: const LogParams(enable: true, sizeKb: 1024 * 10),
       generalParams: MultiPlatformParams(
         animation: ViewAnimationConfig.disabled,
-        enableDynamicAnchor: false,
+        enableDynamicAnchor: true,
         closeMode: CloseMode.softCascade,
         menuItems: [
           TaskbarMenuItem(

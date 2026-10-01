@@ -30,13 +30,18 @@ struct MvdRemoveViewInfo {
 using MvdEmbedderRemoveViewFn = int (*)(void* engine,
                                         const MvdRemoveViewInfo* info);
 
-// Teardown order (X11/GLX race with Flutter raster thread):
-//   1. Caller hides the GtkWindow and unregisters the Dart view.
-//   2. Embedder RemoveView with callback (stops presenting to this view).
-//   3. Short main-thread drain after the callback (#164564: callback can
-//      fire before the raster queue is fully idle).
-//   4. gtk_widget_destroy — FlView dispose may RemoveView again (harmless).
-// X11 GLX errors during the race are still suppressed in the runner.
+// Teardown order (shared FlEngine, X11 GLX and Wayland EGL):
+//   1. Caller unregisters the Dart view but does not unmap yet. Close can
+//      reenter from GTK draw (fl_task_runner_wait); a synchronous hide frees
+//      the Wayland/X11 surface while gdk_cairo_draw_from_gl is still on the
+//      stack.
+//   2. On the next GTK idle: hide (unmap), then embedder RemoveView.
+//   3. After the RemoveView callback, wait kPostRemoveViewDrainMs. The
+//      callback can fire before the raster queue is idle (#164564).
+//   4. gtk_widget_destroy one window at a time, then kInterDestroyGapMs
+//      before the next. FlView dispose may RemoveView again (harmless).
+// Render descendants of FlView are retained until view finalization
+// (mvd_view_render_lifetime). X11 GLX errors are still suppressed in the runner.
 
 #define MVD_LOG MVD_LOG_WINDOW
 
@@ -696,6 +701,38 @@ void StartDestroyRequest(SafeDestroyRequest* req) {
   }
 }
 
+void HidePreservingGeometry(GtkWidget* widget) {
+  if (!widget || !gtk_widget_get_visible(widget)) {
+    return;
+  }
+  GtkWindow* window = GTK_WINDOW(widget);
+  gint x = 0;
+  gint y = 0;
+  gint w = 0;
+  gint h = 0;
+  gtk_window_get_position(window, &x, &y);
+  gtk_window_get_size(window, &w, &h);
+  MVD_LOG("HidePreservingGeometry  widget=%p  pos=(%d,%d) size=%dx%d  %s",
+          static_cast<void*>(widget), x, y, w, h,
+          mvd_xid_str(window).c_str());
+  gtk_widget_hide(widget);
+  gtk_window_move(window, x, y);
+  gtk_window_resize(window, w, h);
+}
+
+gboolean BeginQueuedDestroy(gpointer /*data*/) {
+  if (g_destroy_queue.empty()) {
+    g_destroy_pipeline_busy = false;
+    return G_SOURCE_REMOVE;
+  }
+  SafeDestroyRequest* req = g_destroy_queue.front();
+  g_destroy_queue.erase(g_destroy_queue.begin());
+  // Unmap only after the close call has returned to the GTK main loop.
+  HidePreservingGeometry(req->widget);
+  StartDestroyRequest(req);
+  return G_SOURCE_REMOVE;
+}
+
 void PumpDestroyQueue() {
   if (g_destroy_pipeline_busy) {
     return;
@@ -704,9 +741,7 @@ void PumpDestroyQueue() {
     return;
   }
   g_destroy_pipeline_busy = true;
-  SafeDestroyRequest* req = g_destroy_queue.front();
-  g_destroy_queue.erase(g_destroy_queue.begin());
-  StartDestroyRequest(req);
+  g_idle_add(BeginQueuedDestroy, nullptr);
 }
 
 }  // namespace
@@ -771,7 +806,6 @@ void MvdLinuxWindow::Destroy() {
     return;
   }
   StopDragReleaseWatcher();
-  Hide();
   const bool was_modal = is_modal;
   const int64_t owner_id = modal_owner_view_id;
   const int64_t vid = view_id;
