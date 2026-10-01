@@ -49,7 +49,7 @@ class _CirclesScreenState extends State<CirclesScreen> with SingleTickerProvider
             child: Padding(
               padding: const EdgeInsets.all(12),
               child: TextButton(
-                onPressed: () => context.closeDialog(),
+                onPressed: () => context.closeDialog<String>('Closed'),
                 child: const Text('Close'),
               ),
             ),

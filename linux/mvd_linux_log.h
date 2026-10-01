@@ -3,8 +3,6 @@
 
 #include <glib.h>
 
-#define MVD_ENABLE_LOG
-
 #ifdef MVD_ENABLE_LOG
 #define MVD_LOG_TAG(tag, fmt, ...)                                     \
   g_print("[MVD %.6f] [" tag "] " fmt "\n",                           \

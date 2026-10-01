@@ -563,8 +563,8 @@ class _HomePageState extends State<HomePage> with WindowListener {
                   _tile(
                     'circlesDialog',
                     subtitle: 'Native dialog 1000×640, 400 animated translucent circles',
-                    onTap: () {
-                      openDialog(
+                    onTap: () async{
+                      final res = await openDialog<String?>(
                         (ctx, viewId) => const CirclesScreen(),
                         options: const DialogOptions(
                           size: Size(1000, 640),
@@ -575,6 +575,7 @@ class _HomePageState extends State<HomePage> with WindowListener {
                         ),
                         parentContext: context,
                       );
+                      debugPrint('res: $res');
                     },
                   ),
                   _tile(
