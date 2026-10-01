@@ -1,6 +1,4 @@
-## 1.2.2+focale.1
-
-Focale fork of 1.2.2 (see Focale ADR 0254).
+## Unreleased
 
 - `MainAppShellCapture` no longer walks the whole main view after every frame. It keeps the element of the entry widget it found and walks again only once that element is unmounted.
 - Linux. Window close paths destroy and unmap GTK windows from a main-loop idle callback instead of a 100 ms timer, and no longer quit the application themselves (Focale ADRs 0251 and 0252).
