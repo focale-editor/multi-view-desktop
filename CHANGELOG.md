@@ -1,3 +1,11 @@
+## 1.2.2+focale.1
+
+Focale fork of 1.2.2 (see Focale ADR 0254).
+
+- `MainAppShellCapture` no longer walks the whole main view after every frame. It keeps the element of the entry widget it found and walks again only once that element is unmounted.
+- Linux. Window close paths destroy and unmap GTK windows from a main-loop idle callback instead of a 100 ms timer, and no longer quit the application themselves (Focale ADRs 0251 and 0252).
+- Linux. `multiview_desktop_linux_runner_install` keeps each Flutter view's GTK render children alive until the engine releases the view (Focale ADR 0251). `tool/linux_view_render_lifetime.cc` checks this ownership.
+
 ## 1.2.2
 
 - [Check README] Windows. Fixed other plugins registration and using. Minor native setting update

@@ -470,38 +470,24 @@ void MvdLinuxWindow::Destroy() {
     FocusModalTarget(GetActiveModalFocusTarget(owner_id));
   }
 
-  // ---- Deferred destroy (same rationale as on_delete FINAL CLOSE) ----------
-  //
-  // Calling gtk_widget_destroy while Flutter's raster thread still has frames
-  // queued for this view causes fl_compositor / FlView to be accessed after
-  // the GObject has been disposed, producing GLib-GObject-CRITICAL warnings
-  // and risking GLX context corruption.
-  //
-  // Fix: hide the window immediately (visual feedback), then destroy it 100 ms
-  // later.  By that time Dart has received the 'destroyWindow' acknowledgment,
-  // removed the view from its widget tree, and Flutter's raster thread has
-  // drained any in-flight frames for this view.
-  // --------------------------------------------------------------------------
-  MVD_LOG("Destroy  hiding window immediately  view_id=%" G_GINT64_FORMAT
-          "  w=%p", vid, static_cast<void*>(w));
-  gtk_widget_hide(GTK_WIDGET(w));
-
-  // Keep the GObject alive across the timer.
+  // Defer unmapping too: platform messages can run inside a GTK GL draw.
+  // Keep the GObject alive until the main-loop callback.
   g_object_ref(GTK_WIDGET(w));
 
   struct DestroyCtx { GtkWidget* widget; int64_t vid; };
   auto* ctx = new DestroyCtx{GTK_WIDGET(w), vid};
 
-  MVD_LOG("Destroy  scheduling deferred gtk_widget_destroy (100 ms)"
+  MVD_LOG("Destroy  scheduling main-loop gtk_widget_destroy"
           "  view_id=%" G_GINT64_FORMAT "  w=%p", vid, static_cast<void*>(w));
 
-  g_timeout_add(
-      100,
+  g_idle_add_full(
+      G_PRIORITY_DEFAULT_IDLE,
       [](gpointer data) -> gboolean {
         auto* c = static_cast<DestroyCtx*>(data);
         MVD_LOG("Destroy  deferred_destroy_cb  view_id=%" G_GINT64_FORMAT
                 "  calling gtk_widget_destroy  widget=%p",
                 c->vid, static_cast<void*>(c->widget));
+        gtk_widget_hide(c->widget);
         gtk_widget_destroy(c->widget);
         MVD_LOG("Destroy  deferred_destroy_cb  view_id=%" G_GINT64_FORMAT
                 "  gtk_widget_destroy returned  releasing extra GObject ref",
@@ -510,7 +496,7 @@ void MvdLinuxWindow::Destroy() {
         delete c;
         return G_SOURCE_REMOVE;
       },
-      ctx);
+      ctx, nullptr);
 
   MVD_LOG("Destroy  END (deferred)  original view_id=%" G_GINT64_FORMAT, vid);
 }

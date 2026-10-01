@@ -15,7 +15,8 @@ G_BEGIN_DECLS
 #endif
 
 /// Call once at the start of GApplication::activate, before creating the primary FlView.
-/// Hooks Dart createWindow to open additional GTK windows.
+/// Hooks Dart createWindow to open additional GTK windows, and keeps each
+/// view's GTK render children alive until the engine releases the view.
 FLUTTER_PLUGIN_EXPORT void multiview_desktop_linux_runner_install(
     GtkApplication* application);
 

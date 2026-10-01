@@ -5,6 +5,7 @@ description: >-
   Linux (X11 and Wayland).
 
 version: 1.2.2
+publish_to: none
 
 repository: https://github.com/vvlad-islavs/multi-view-desktop
 homepage: https://github.com/vvlad-islavs/multi-view-desktop
@@ -29,7 +30,7 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-  meta: ^1.18.0
+  meta: ^1.19.0
   collection: ^1.19.1
 
 dev_dependencies:

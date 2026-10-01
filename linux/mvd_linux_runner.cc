@@ -2,6 +2,7 @@
 
 #include "mvd_linux_internal.h"
 #include "mvd_linux_log.h"
+#include "mvd_linux_view_render_lifetime.h"
 #include "mvd_linux_window.h"
 
 #include <flutter_linux/flutter_linux.h>
@@ -285,6 +286,8 @@ void multiview_desktop_linux_runner_install(GtkApplication* application) {
           static_cast<void*>(application));
   g_app = application;
   mvd_linux_set_window_created_callback(window_created_callback);
+  // Before the primary window exists, so every view gets render ownership.
+  mvd_linux_install_view_render_lifetime(application);
 
   // X11: install custom error handler.
   // Must be done AFTER GDK is initialized (which happens before activate),

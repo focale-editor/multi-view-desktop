@@ -234,96 +234,38 @@ static gboolean on_delete(GtkWidget* widget, GdkEvent*, gpointer data) {
         MvdLinuxWindow::GetActiveModalFocusTarget(owner_id));
   }
 
-  // Determine now (before the async delay) whether we should quit the app.
-  //
-  // Two independent conditions can require a quit:
-  //   1. g_terminate_after_last_window_closed is true and there are no more
-  //      registered windows (Dart-controlled policy).
-  //   2. The last registered window was the primary/implicit view (view_id==0).
-  //      Flutter's engine will terminate on its own when the implicit FlView
-  //      is destroyed, but we still call g_application_quit to ensure the
-  //      GApplication main loop exits cleanly if Flutter somehow doesn't.
-  const bool should_quit = [&]() -> bool {
-    std::lock_guard<std::mutex> lock(MvdLinuxWindow::registry_mtx);
-    if (MvdLinuxWindow::windows.empty()) {
-      // All windows closed: quit if the policy says so, OR if this was the
-      // primary window (view_id==0), which always implies the app should exit.
-      return g_terminate_after_last_window_closed || (view_id == 0);
-    }
-    return false;
-  }();
-
-  // Deferred destroy - the root of the X11/GLX crash.
-  //
-  // Problem: returning FALSE from delete-event lets GTK destroy the GtkWindow
-  // immediately and synchronously.  The underlying X11 XID is freed on this
-  // thread, but Flutter's raster thread (running at 60 fps) still has frames
-  // queued for this view.  It calls glXMakeCurrent / glXSwapBuffers on the
-  // now-dead XID -> the GLX call returns False -> Flutter's FML_CHECK aborts.
-  // Suppressing the X11 error notification alone is not enough because the
-  // GLX API return value (False) still triggers Flutter's internal fatal check.
-  //
-  // Fix: return TRUE (block GTK's immediate destroy), hide the window for
-  // instant visual feedback, then schedule gtk_widget_destroy 100 ms later.
-  //
-  // During those 100 ms:
-  //   - Dart processes the 'close' event and removes the view from the widget
-  //     tree (~1-2 frames, <=32 ms).
-  //   - Flutter's framework marks nothing dirty for this now-empty view, so
-  //     the raster thread stops generating frames for it.
-  //   - By the time gtk_widget_destroy fires, the raster thread is idle for
-  //     this view -> fl_view_dispose -> FlutterEngineRemoveView runs cleanly
-  //     with no pending GL work -> GLX surface properly destroyed before the
-  //     X11 XID is freed -> no race, no crash.
-  //
-  // The X11 error handler installed in runner_install() remains as a safety
-  // net for any residual errors from frames that were already in flight.
-
-  MVD_LOG("on_delete  viewId=%" G_GINT64_FORMAT
-          "  hiding window immediately (visual feedback)  widget=%p",
-          view_id, static_cast<void*>(widget));
-  gtk_widget_hide(widget);
-
-  // Hold an extra GObject ref so the window stays alive through the timer.
+  // Run after any reentrant GTK GL draw, never on a timer assumption.
+  // Hold an extra GObject ref so the window stays alive through the main-loop callback.
   g_object_ref(widget);
 
   struct DeferredCtx {
     GtkWidget* widget;
-    bool       should_quit;
     int64_t    view_id;   // for logging only
   };
-  auto* ctx = new DeferredCtx{widget, should_quit, view_id};
+  auto* ctx = new DeferredCtx{widget, view_id};
 
   MVD_LOG("on_delete  viewId=%" G_GINT64_FORMAT
-          "  scheduling deferred gtk_widget_destroy in 100 ms  widget=%p"
-          "  should_quit=%d",
-          view_id, static_cast<void*>(widget),
-          static_cast<int>(should_quit));
+          "  scheduling main-loop gtk_widget_destroy  widget=%p",
+          view_id, static_cast<void*>(widget));
 
-  g_timeout_add(
-      100,  // ms - 6+ Flutter frames; enough for Dart to clear the view tree
+  g_idle_add_full(
+      G_PRIORITY_DEFAULT_IDLE,
       [](gpointer data) -> gboolean {
         std::unique_ptr<DeferredCtx> c(static_cast<DeferredCtx*>(data));
         MVD_LOG("on_delete  deferred_destroy_cb  viewId=%" G_GINT64_FORMAT
                 "  calling gtk_widget_destroy  widget=%p",
                 c->view_id, static_cast<void*>(c->widget));
+        gtk_widget_hide(c->widget);
         gtk_widget_destroy(c->widget);
         MVD_LOG("on_delete  deferred_destroy_cb  viewId=%" G_GINT64_FORMAT
                 "  gtk_widget_destroy returned  releasing extra GObject ref",
                 c->view_id);
-        g_object_unref(c->widget);  // release the ref we took before the timer
-        if (c->should_quit) {
-          GApplication* app = g_application_get_default();
-          MVD_LOG("on_delete  deferred_destroy_cb  viewId=%" G_GINT64_FORMAT
-                  "  last window closed, calling g_application_quit  app=%p",
-                  c->view_id, static_cast<void*>(app));
-          if (app) {
-            g_application_quit(app);
-          }
-        }
+        g_object_unref(c->widget);  // release the ref we took before scheduling
+        // The runner holds GApplication until the shared engine has stopped,
+        // including when a secondary view is the last window to close.
         return G_SOURCE_REMOVE;
       },
-      ctx);
+      ctx, nullptr);
 
   MVD_LOG("on_delete  viewId=%" G_GINT64_FORMAT
           "  returning TRUE (deferred destroy scheduled, GTK immediate destroy blocked)",

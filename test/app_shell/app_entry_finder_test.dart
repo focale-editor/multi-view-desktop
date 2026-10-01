@@ -82,7 +82,95 @@ void main() {
 
       expect(registry.snapshot?.themeMode, ThemeMode.dark);
     });
+
+    testWidgets('MainAppShellCapture does not walk the subtree on every frame', (tester) async {
+      final registry = AppShellRegistry();
+      addTearDown(registry.dispose);
+      final visits = ValueNotifier<int>(0);
+      addTearDown(visits.dispose);
+      final ticks = ValueNotifier<int>(0);
+      addTearDown(ticks.dispose);
+
+      await tester.pumpWidget(
+        MainAppShellCapture(
+          registry: registry,
+          child: _VisitCounter(
+            visits: visits,
+            child: MaterialApp(
+              home: ValueListenableBuilder<int>(
+                valueListenable: ticks,
+                builder: (context, value, _) => Text('$value', textDirection: TextDirection.ltr),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+      final visitsAfterCapture = visits.value;
+
+      for (var frame = 0; frame < 10; frame++) {
+        ticks.value++;
+        await tester.pump();
+      }
+
+      expect(registry.snapshot, isNotNull);
+      expect(visits.value, visitsAfterCapture);
+    });
+
+    testWidgets('MainAppShellCapture finds an entry widget that replaced the previous one', (tester) async {
+      final registry = AppShellRegistry();
+      addTearDown(registry.dispose);
+      final mode = ValueNotifier<ThemeMode>(ThemeMode.light);
+      addTearDown(mode.dispose);
+
+      await tester.pumpWidget(
+        MainAppShellCapture(
+          registry: registry,
+          child: ValueListenableBuilder<ThemeMode>(
+            valueListenable: mode,
+            // A new key mounts a new entry element instead of updating the old one.
+            builder: (context, value, _) => MaterialApp(
+              key: ValueKey(value),
+              themeMode: value,
+              home: const SizedBox(),
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+      expect(registry.snapshot?.themeMode, ThemeMode.light);
+
+      mode.value = ThemeMode.dark;
+      await tester.pump();
+      await tester.pump();
+
+      expect(registry.snapshot?.themeMode, ThemeMode.dark);
+    });
   });
+}
+
+/// Counts how often a subtree walk passes through this widget.
+class _VisitCounter extends StatelessWidget {
+  const _VisitCounter({required this.visits, required this.child});
+
+  final ValueNotifier<int> visits;
+  final Widget child;
+
+  @override
+  StatelessElement createElement() => _VisitCounterElement(this);
+
+  @override
+  Widget build(BuildContext context) => child;
+}
+
+class _VisitCounterElement extends StatelessElement {
+  _VisitCounterElement(_VisitCounter super.widget);
+
+  @override
+  void visitChildren(ElementVisitor visitor) {
+    (widget as _VisitCounter).visits.value++;
+    super.visitChildren(visitor);
+  }
 }
 
 class _ThemeToggleHost extends StatefulWidget {

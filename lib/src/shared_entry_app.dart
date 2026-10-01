@@ -31,9 +31,20 @@ abstract final class AppEntryPointFinder {
 
   /// Walks **down** from `root` and returns the shallowest recognized entry widget.
   static AppShellSnapshot? findShallowestInSubtree(Element root) {
-    AppShellSnapshot? material;
-    AppShellSnapshot? cupertino;
-    AppShellSnapshot? widgets;
+    final element = findShallowestEntryElement(root);
+    return element == null ? null : snapshotOf(element.widget);
+  }
+
+  /// Walks **down** from `root` and returns the element of the shallowest
+  /// recognized entry widget, preferring `MaterialApp`, then `CupertinoApp`,
+  /// then `WidgetsApp`.
+  ///
+  /// The walk visits the whole subtree. Callers that need the entry widget
+  /// repeatedly should keep the returned element while it stays mounted.
+  static Element? findShallowestEntryElement(Element root) {
+    Element? material;
+    Element? cupertino;
+    Element? widgets;
     var materialDepth = 1 << 30;
     var cupertinoDepth = 1 << 30;
     var widgetsDepth = 1 << 30;
@@ -41,13 +52,13 @@ abstract final class AppEntryPointFinder {
     void visit(Element element, int depth) {
       final widget = element.widget;
       if (widget is MaterialApp && depth < materialDepth) {
-        material = AppShellSnapshot.fromMaterialApp(widget);
+        material = element;
         materialDepth = depth;
       } else if (widget is CupertinoApp && depth < cupertinoDepth) {
-        cupertino = AppShellSnapshot.fromCupertinoApp(widget);
+        cupertino = element;
         cupertinoDepth = depth;
       } else if (widget is WidgetsApp && depth < widgetsDepth) {
-        widgets = AppShellSnapshot.fromWidgetsApp(widget);
+        widgets = element;
         widgetsDepth = depth;
       }
       element.visitChildren((Element child) => visit(child, depth + 1));
@@ -56,6 +67,14 @@ abstract final class AppEntryPointFinder {
     root.visitChildren((Element child) => visit(child, 0));
     return material ?? cupertino ?? widgets;
   }
+
+  /// Copies the app-wide fields of a recognized entry widget, or returns null.
+  static AppShellSnapshot? snapshotOf(Widget widget) => switch (widget) {
+        final MaterialApp app => AppShellSnapshot.fromMaterialApp(app),
+        final CupertinoApp app => AppShellSnapshot.fromCupertinoApp(app),
+        final WidgetsApp app => AppShellSnapshot.fromWidgetsApp(app),
+        _ => null,
+      };
 }
 
 /// Captures the main entry widget into `registry` after each frame.
@@ -71,6 +90,17 @@ class MainAppShellCapture extends StatefulWidget {
 
 class _MainAppShellCaptureState extends State<MainAppShellCapture> {
   bool _captureLoopScheduled = false;
+
+  /// Element of the entry widget found by the last subtree walk.
+  ///
+  /// Walking the whole main view after every frame costs time proportional to
+  /// its element count, which large applications pay on every animation and
+  /// pointer frame. While this element stays mounted, reading its current
+  /// widget is enough to follow rebuilds of the entry widget.
+  Element? _entryElement;
+
+  /// Entry widget instance the registry snapshot was last copied from.
+  Widget? _capturedWidget;
 
   @override
   void initState() {
@@ -89,6 +119,8 @@ class _MainAppShellCaptureState extends State<MainAppShellCapture> {
   /// `homeBuilder` may return a `StatefulWidget` (e.g. `MainWindowRoot`) whose
   /// inner `MaterialApp` rebuilds without updating this capture widget. A
   /// one-shot capture on `didUpdateWidget` misses runtime theme/locale changes.
+  /// Each check reads the cached entry element, so it stays constant-time
+  /// unless that element was unmounted or none has been found yet.
   void _scheduleCaptureLoop() {
     if (_captureLoopScheduled || !mounted) return;
     _captureLoopScheduled = true;
@@ -103,8 +135,16 @@ class _MainAppShellCaptureState extends State<MainAppShellCapture> {
   }
 
   void _captureFromSubtree() {
-    final snapshot = AppEntryPointFinder.findShallowestInSubtree(context as Element);
-    widget.registry.replace(snapshot);
+    var entry = _entryElement;
+    if (entry == null || !entry.mounted) {
+      entry = _entryElement = AppEntryPointFinder.findShallowestEntryElement(context as Element);
+    }
+    final entryWidget = entry?.widget;
+    if (entryWidget != null && identical(entryWidget, _capturedWidget)) {
+      return;
+    }
+    _capturedWidget = entryWidget;
+    widget.registry.replace(entryWidget == null ? null : AppEntryPointFinder.snapshotOf(entryWidget));
   }
 
   void _captureFromUpstream(BuildContext context) {
