@@ -116,7 +116,7 @@ Future<void> main() async {
         minimumSize: Size(1000, 700),
         maximumSize: Size(1400, 900),
         size: Size(1000, 700),
-        alignment: Alignment.bottomLeft,
+        alignment: Alignment.center,
         titleBarStyle: TitleBarStyle.normal,
         windowButtonVisibility: true,
         title: 'Window 1',
