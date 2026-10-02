@@ -2,8 +2,8 @@
 
 #include "mvd_linux_internal.h"
 #include "mvd_linux_log.h"
-#include "mvd_linux_view_render_lifetime.h"
 #include "mvd_linux_window.h"
+#include "mvd_view_render_lifetime.h"
 
 #include <flutter_linux/flutter_linux.h>
 #ifdef GDK_WINDOWING_X11
@@ -114,12 +114,11 @@ static void first_frame_cb(gpointer user_data, FlView* view) {
             "  (no pending move to apply)", view_id);
   }
 
-  MVD_LOG("first_frame_cb  calling gtk_widget_show on toplevel=%p",
-          static_cast<void*>(top));
-  gtk_widget_show(top);
-  MVD_LOG("first_frame_cb  calling gtk_widget_grab_focus on view=%p",
-          static_cast<void*>(view));
-  gtk_widget_grab_focus(GTK_WIDGET(view));
+  // The GtkWindow stays unmapped until Dart calls Show() (showOnInit /
+  // completeShow). Mapping it here ignores that and draws the frame early.
+  MVD_LOG("first_frame_cb  toplevel=%p left unmapped until Show()"
+          "  view_id=%" G_GINT64_FORMAT,
+          static_cast<void*>(top), view_id);
   MVD_LOG("first_frame_cb  DONE  view_id=%" G_GINT64_FORMAT, view_id);
 }
 
@@ -152,7 +151,7 @@ static gchar* resolve_flutter_bundle_root(void) {
   return nullptr;
 }
 
-static void create_secondary_window(const MvdCreateWindowRequest* request) {
+static int64_t create_secondary_window(const MvdCreateWindowRequest* request) {
   MVD_LOG("create_secondary_window  START  g_app=%p  g_shared_engine=%p"
           "  request=%p",
           static_cast<void*>(g_app),
@@ -164,7 +163,7 @@ static void create_secondary_window(const MvdCreateWindowRequest* request) {
             static_cast<void*>(g_app),
             static_cast<void*>(g_shared_engine),
             static_cast<const void*>(request));
-    return;
+    return -1;
   }
 
   const char* title =
@@ -199,6 +198,7 @@ static void create_secondary_window(const MvdCreateWindowRequest* request) {
                     static_cast<int>(request->pos_y));
   }
 
+  MvdLinuxWindow::WaitUntilSafeToCreateView();
   MVD_LOG("create_secondary_window  calling fl_view_new_for_engine"
           "  engine=%p", static_cast<void*>(g_shared_engine));
   FlView* view = fl_view_new_for_engine(g_shared_engine);
@@ -209,6 +209,8 @@ static void create_secondary_window(const MvdCreateWindowRequest* request) {
   gdk_rgba_parse(&background_color, "#000000");
   fl_view_set_background_color(view, &background_color);
 
+  // Mark the FlView visible so it maps with the window later. This does not
+  // map the GtkWindow; Show() does that when showOnInit / completeShow runs.
   MVD_LOG("create_secondary_window  calling gtk_widget_show on view=%p",
           static_cast<void*>(view));
   gtk_widget_show(GTK_WIDGET(view));
@@ -233,13 +235,16 @@ static void create_secondary_window(const MvdCreateWindowRequest* request) {
           "  token=%" G_GINT64_FORMAT "  window=%p  view=%p",
           request->token, static_cast<void*>(window),
           static_cast<void*>(view));
-  mvd_linux_complete_secondary_window(window, view, request->token);
+  const int64_t view_id =
+      mvd_linux_complete_secondary_window(window, view, request->token);
   MVD_LOG("create_secondary_window  END  token=%" G_GINT64_FORMAT
-          "  (window will be shown from first_frame_cb)", request->token);
-  // Shown from first_frame_cb after the first Flutter frame is rendered.
+          "  view_id=%" G_GINT64_FORMAT
+          "  (window stays hidden until Show())", request->token,
+          view_id);
+  return view_id;
 }
 
-static void window_created_callback(const MvdCreateWindowRequest* request) {
+static int64_t window_created_callback(const MvdCreateWindowRequest* request) {
   MVD_LOG("window_created_callback  RECEIVED  token=%" G_GINT64_FORMAT
           "  size=%.0fx%.0f  title='%s'"
           "  title_bar_style='%s'  has_position=%d  pos=(%.0f,%.0f)",
@@ -248,33 +253,7 @@ static void window_created_callback(const MvdCreateWindowRequest* request) {
           request->title_bar_style ? request->title_bar_style : "",
           static_cast<int>(request->has_position),
           request->pos_x, request->pos_y);
-
-  // Copy strings before the async GLib callback runs.
-  struct Ctx {
-    MvdCreateWindowRequest request;
-    std::string title;
-    std::string title_bar_style;
-  };
-  auto* ctx = new Ctx;
-  ctx->title = request->title ? request->title : "";
-  ctx->title_bar_style = request->title_bar_style ? request->title_bar_style : "";
-  ctx->request = *request;
-  ctx->request.title = ctx->title.c_str();
-  ctx->request.title_bar_style = ctx->title_bar_style.c_str();
-  MVD_LOG("window_created_callback  marshaling to main thread via"
-          " g_main_context_invoke  token=%" G_GINT64_FORMAT, request->token);
-  g_main_context_invoke(
-      nullptr,
-      [](gpointer data) -> gboolean {
-        std::unique_ptr<Ctx> c(static_cast<Ctx*>(data));
-        MVD_LOG("window_created_callback  main-thread callback"
-                "  token=%" G_GINT64_FORMAT, c->request.token);
-        create_secondary_window(&c->request);
-        return G_SOURCE_REMOVE;
-      },
-      ctx);
-  MVD_LOG("window_created_callback  g_main_context_invoke dispatched"
-          "  token=%" G_GINT64_FORMAT, request->token);
+  return create_secondary_window(request);
 }
 
 }  // namespace
@@ -286,8 +265,9 @@ void multiview_desktop_linux_runner_install(GtkApplication* application) {
           static_cast<void*>(application));
   g_app = application;
   mvd_linux_set_window_created_callback(window_created_callback);
-  // Before the primary window exists, so every view gets render ownership.
-  mvd_linux_install_view_render_lifetime(application);
+  // Retain FlView render children across gtk_widget_destroy (Wayland draw /
+  // compositor teardown). Must be installed before any window is created.
+  mvd_install_view_render_lifetime(application);
 
   // X11: install custom error handler.
   // Must be done AFTER GDK is initialized (which happens before activate),

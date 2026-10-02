@@ -14,15 +14,12 @@ private extension NSScreen {
             name = localizedName
         }
         let primaryMaxY = NSScreen.screens.first?.frame.maxY ?? frame.maxY
+        let scale = backingScaleFactor
 
-        // Full screen bounds in Flutter coords.
         let size: NSDictionary = [
             "width": frame.width,
             "height": frame.height,
         ]
-
-        // Visible area (excludes Dock / menu bar) in Flutter coords.
-        // visibleFrame.origin is in Cocoa coords (Y-up from primary bottom).
         let vf = visibleFrame
         let visiblePosition: NSDictionary = [
             "dx": vf.origin.x,
@@ -32,14 +29,60 @@ private extension NSScreen {
             "width": vf.width,
             "height": vf.height,
         ]
-
-        return [
+        let physicalBounds: NSDictionary = [
+            "x": frame.minX * scale,
+            "y": (primaryMaxY - frame.maxY) * scale,
+            "width": frame.width * scale,
+            "height": frame.height * scale,
+        ]
+        let physicalWorkArea: NSDictionary = [
+            "x": vf.minX * scale,
+            "y": (primaryMaxY - vf.maxY) * scale,
+            "width": vf.width * scale,
+            "height": vf.height * scale,
+        ]
+        let mm = CGDisplayScreenSize(mvdDisplayID)
+        var dict: [String: Any] = [
             "id": mvdDisplayID.description,
             "name": name,
             "size": size,
             "visiblePosition": visiblePosition,
             "visibleSize": visibleSize,
+            "scaleFactor": scale,
+            "dpi": 96.0 * scale,
+            "physicalBounds": physicalBounds,
+            "physicalWorkArea": physicalWorkArea,
         ]
+        if mm.width > 0 && mm.height > 0 {
+            dict["physicalWidthMm"] = mm.width
+            dict["physicalHeightMm"] = mm.height
+        }
+        return dict as NSDictionary
+    }
+}
+
+enum MvdScreenQuery {
+    static func cursorPoint() -> NSPoint {
+        let primaryMaxY = NSScreen.screens.first?.frame.maxY ?? (NSScreen.main?.frame.maxY ?? 0)
+        let mouseLocation = NSEvent.mouseLocation
+        return NSPoint(x: mouseLocation.x, y: primaryMaxY - mouseLocation.y)
+    }
+
+    static func primaryDictionary() -> NSDictionary? {
+        NSScreen.screens.first?.toMvdDictionary()
+    }
+
+    static func allDictionaries() -> [NSDictionary] {
+        NSScreen.screens.map { $0.toMvdDictionary() }
+    }
+
+    static func jsonString(from object: Any) -> String {
+        guard JSONSerialization.isValidJSONObject(object),
+              let data = try? JSONSerialization.data(withJSONObject: object),
+              let text = String(data: data, encoding: .utf8) else {
+            return ""
+        }
+        return text
     }
 }
 
@@ -102,6 +145,7 @@ class MvdScreenRetrieverPlugin: NSObject, FlutterStreamHandler {
     }
 
     private func emitEvent(_ eventName: String) {
+        mvdScreenTryEmit(eventName)
         guard let sink = eventSink else { return }
         sink(["type": eventName] as NSDictionary)
     }
@@ -109,24 +153,84 @@ class MvdScreenRetrieverPlugin: NSObject, FlutterStreamHandler {
     private func handle(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
         switch call.method {
         case "getCursorScreenPoint":
-            getCursorScreenPoint(result: result)
+            let point = MvdScreenQuery.cursorPoint()
+            result(["dx": point.x, "dy": point.y] as NSDictionary)
         case "getPrimaryDisplay":
-            guard let screen = NSScreen.screens.first else {
+            guard let screen = MvdScreenQuery.primaryDictionary() else {
                 result(FlutterError(code: "NO_SCREEN", message: "No primary display found", details: nil))
                 return
             }
-            result(screen.toMvdDictionary())
+            result(screen)
         case "getAllDisplays":
-            result(["displays": NSScreen.screens.map { $0.toMvdDictionary() }] as NSDictionary)
+            result(["displays": MvdScreenQuery.allDictionaries()] as NSDictionary)
         default:
             result(FlutterMethodNotImplemented)
         }
     }
+}
 
-    /// Returns cursor position in Flutter logical coords (Y-down from primary screen top).
-    private func getCursorScreenPoint(result: @escaping FlutterResult) {
-        let primaryMaxY = NSScreen.screens.first?.frame.maxY ?? (NSScreen.main?.frame.maxY ?? 0)
-        let mouseLocation = NSEvent.mouseLocation
-        result(["dx": mouseLocation.x, "dy": primaryMaxY - mouseLocation.y] as NSDictionary)
-    }
+private let kScreenStrCap = 8192
+
+private let _screenRectBuf: UnsafeMutablePointer<Double> = {
+    let p = UnsafeMutablePointer<Double>.allocate(capacity: 4)
+    p.initialize(repeating: 0, count: 4)
+    return p
+}()
+
+private let _screenStrBuf: UnsafeMutablePointer<CChar> = {
+    let p = UnsafeMutablePointer<CChar>.allocate(capacity: kScreenStrCap)
+    p.initialize(repeating: 0, count: kScreenStrCap)
+    return p
+}()
+
+public typealias MvdScreenEventCallback = @convention(c) (UnsafePointer<CChar>?) -> Void
+
+private var _screenEventCb: MvdScreenEventCallback?
+
+func mvdScreenTryEmit(_ name: String) {
+    guard let cb = _screenEventCb else { return }
+    name.withCString { cstr in cb(cstr) }
+}
+
+private func writeScreenStr(_ s: String) {
+    let chars = Array(s.utf8CString)
+    let n = min(chars.count, kScreenStrCap)
+    _screenStrBuf.update(from: chars, count: n)
+    _screenStrBuf[kScreenStrCap - 1] = 0
+}
+
+@_cdecl("mvd_screen_rect_buf_ptr")
+public func mvdScreenRectBufPtr() -> UnsafeMutablePointer<Double> { _screenRectBuf }
+
+@_cdecl("mvd_screen_str_buf_ptr")
+public func mvdScreenStrBufPtr() -> UnsafeMutablePointer<CChar> { _screenStrBuf }
+
+@_cdecl("mvd_set_screen_event_callback")
+public func mvdSetScreenEventCallback(_ cb: MvdScreenEventCallback?) {
+    _screenEventCb = cb
+}
+
+@_cdecl("mvd_get_cursor_screen_point")
+public func mvdGetCursorScreenPoint(_: Double) -> Int32 {
+    let point = MvdScreenQuery.cursorPoint()
+    _screenRectBuf[0] = Double(point.x)
+    _screenRectBuf[1] = Double(point.y)
+    return 1
+}
+
+@_cdecl("mvd_get_primary_display")
+public func mvdGetPrimaryDisplay() -> Int32 {
+    guard let dict = MvdScreenQuery.primaryDictionary() else { return 0 }
+    let json = MvdScreenQuery.jsonString(from: dict)
+    if json.isEmpty { return 0 }
+    writeScreenStr(json)
+    return 1
+}
+
+@_cdecl("mvd_get_all_displays")
+public func mvdGetAllDisplays() -> Int32 {
+    let json = MvdScreenQuery.jsonString(from: MvdScreenQuery.allDictionaries())
+    if json.isEmpty { return 0 }
+    writeScreenStr(json)
+    return 1
 }

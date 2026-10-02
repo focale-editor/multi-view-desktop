@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 
 import 'package:multiview_desktop/multiview_desktop.dart';
 import 'package:tray_manager/tray_manager.dart';
+import 'e2e/e2e.dart';
 import 'pages/home.dart';
 import 'l10n/example_localizations.dart';
 import 'theme/app_themes.dart';
@@ -30,18 +31,28 @@ Future<void> initSystemTray() async {
   await trayManager.setContextMenu(menu);
 }
 
-void main() {
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // Optional surface-layer E2E harness (Python scripts). Disabled unless
+  // `--dart-define=MVD_E2E=true`.
+  final e2eStore = E2eContextStore();
+  await maybeStartE2eHarness(handlers: buildExampleE2eHandlers(ExampleE2eHandlerDeps(contexts: e2eStore)));
+
   runMultiApp(
     home: (globalScopeContext, id) {
-      return const MainWindowRoot();
+      // E2eHost must sit *inside* MaterialApp (see MainWindowRoot) so overlay /
+      // MaterialLocalizations work for primary-window RPC.
+      return MainWindowRoot(e2eStore: e2eEnabledFromEnvironment() ? e2eStore : null);
     },
     globalScope: (child) {
       //any providers...
       return child;
     },
     config: MultiAppConfig(
+      fileLogParams: const LogParams(enable: true, sizeKb: 1024 * 10),
       generalParams: MultiPlatformParams(
+        animation: ViewAnimationConfig.all(modalFadeInOnOpen: true, modalFadeOutOnClose:  true),
         enableDynamicAnchor: true,
         closeMode: CloseMode.softCascade,
         menuItems: [
@@ -53,8 +64,10 @@ void main() {
         ],
       ),
       macosParams: MacosPlatformParams(
-        // closeAppAfterLastWindowClosed: false,
-        saveLastWindowToReopen: true,
+        // Defaults match example dock behavior; cascade-exit E2E overrides via
+        // MVD_E2E_CLOSE_APP_AFTER_LAST / MVD_E2E_SAVE_LAST_WINDOW.
+        closeAppAfterLastWindowClosed: e2eCloseAppAfterLastWindowClosedFromEnvironment(),
+        saveLastWindowToReopen: e2eSaveLastWindowToReopenFromEnvironment(),
         onTerminate: () async {
           // do something before terminate
           // for example soft close instead of destroy
@@ -72,7 +85,7 @@ void main() {
             // when saveLastWindowToReopen == true last window hides instead of close and stay in stack
             // so you should to detect it
             final lastView = allWindows.isNotEmpty ? MultiViewDesktop.fromId(allWindows.first) : null;
-            if (!(await lastView?.isVisible() ?? true)) {
+            if (!(lastView?.isVisible() ?? true)) {
               // if saveLastWindowToReopen == true and last window is hide, a tap on taskbar will be open last view and focus it.
               // don't focus secondly at this time else focus may be broken, so just return
               return;
@@ -86,7 +99,7 @@ void main() {
           int idWithFocus = -1;
           for (final id in allWindows) {
             final mvd = MultiViewDesktop.fromId(id);
-            if (await mvd.isFocused()) {
+            if (mvd.isFocused()) {
               idWithFocus = id;
               break;
             }
@@ -95,19 +108,19 @@ void main() {
           if (allWindows.length == 1 && idWithFocus != -1) {
             return;
           }
-          await MultiViewDesktop.fromId(nextFocusId).focus();
+          MultiViewDesktop.fromId(nextFocusId).focus();
           return;
         },
       ),
       globalWindowOptions: WindowOptions(
         minimumSize: Size(1000, 700),
-        maximumSize: Size(1200, 800),
+        maximumSize: Size(1400, 900),
         size: Size(1000, 700),
         alignment: Alignment.center,
-        hideAppFromTaskbar: false,
         titleBarStyle: TitleBarStyle.normal,
         windowButtonVisibility: true,
         title: 'Window 1',
+        backgroundColor: Colors.transparent,
       ),
       globalDialogOptions: DialogOptions(modal: false, windowButtonVisibility: true),
       observers: [AppWindowObserver()],
@@ -162,7 +175,11 @@ class AppWindowObserver extends WindowObserver {
 /// which is defined inside pages/home.dart and shares the same `themeConfig`
 /// singleton.
 class MainWindowRoot extends StatefulWidget {
-  const MainWindowRoot({super.key});
+  const MainWindowRoot({super.key, this.e2eStore});
+
+  /// When set, [HomePage] is wrapped so the primary view context is registered
+  /// under MaterialApp (needed for overlay / popup E2E on the primary window).
+  final E2eContextStore? e2eStore;
 
   @override
   State<MainWindowRoot> createState() => _MainWindowRootState();
@@ -184,11 +201,11 @@ class _MainWindowRootState extends State<MainWindowRoot> with TrayListener {
     // });
 
     WidgetsBinding.instance.addPostFrameCallback((_) async {
-      await MultiViewDesktop.setGlobalBrightness(
+      MultiViewDesktop.setGlobalBrightness(
         themeConfig.themeMode == ThemeMode.dark ? Brightness.dark : Brightness.light,
       );
 
-      sharedConfig.isHideAppFromTaskbar = await MultiViewDesktop.isHideAppFromTaskbar();
+      sharedConfig.isHideAppFromTaskbar = MultiViewDesktop.isHideAppFromTaskbar();
       sharedConfig.closeMode = MultiViewDesktop.getCloseMode();
       sharedConfig.anchorId = MultiViewDesktop.getAnchorId();
       await initSystemTray();
@@ -246,7 +263,7 @@ class _MainWindowRootState extends State<MainWindowRoot> with TrayListener {
       locale: const Locale('en'),
       localizationsDelegates: exampleLocalizationDelegates(),
       supportedLocales: ExampleLocalizations.supportedLocales,
-      home: const HomePage(),
+      home: widget.e2eStore != null ? E2eHost(store: widget.e2eStore!, child: const HomePage()) : const HomePage(),
     );
   }
 }

@@ -15,17 +15,18 @@ class ThemeConfig extends ChangeNotifier {
     if (_themeMode == mode) return;
     _themeMode = mode;
     MultiViewDesktop.appShell.patch(AppShellPatch(themeMode: mode));
-    // main view id always is 1
-    if (_themeMode.isSystem) {
-      MultiViewDesktop.fromId(1).setBrightness(WidgetsBinding.instance.platformDispatcher.platformBrightness);
+    final Brightness brightness;
+    if (_themeMode == ThemeMode.system) {
+      brightness = WidgetsBinding.instance.platformDispatcher.platformBrightness;
+    } else if (_themeMode == ThemeMode.dark) {
+      brightness = Brightness.dark;
     } else {
-      MultiViewDesktop.fromId(1).setBrightness(_themeMode.isDark ? Brightness.dark : Brightness.light);
+      brightness = Brightness.light;
     }
-    // force set brightness to all views.
-    // MultiViewDesktop.setGlobalBrightness(_themeMode == ThemeMode.dark ? Brightness.dark : Brightness.light);
+    // Native title-bar / caption chrome for every open window.
+    MultiViewDesktop.setGlobalBrightness(brightness);
     notifyListeners();
 
-    // Broadcast so every window can update its native brightness.
     MultiViewDesktop.communicator.broadcast({'type': 'themeMode', 'value': mode.name});
   }
 }

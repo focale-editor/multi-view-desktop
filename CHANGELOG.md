@@ -1,9 +1,26 @@
-## Unreleased
+## 2.0.0+focale.1
+
+Focale fork of 2.0.0. Upstream structure, plus:
 
 - `MainAppShellCapture` no longer walks the whole main view after every frame. It keeps the element of the entry widget it found and walks again only once that element is unmounted.
-- Linux. Window close paths destroy and unmap GTK windows from a main-loop idle callback instead of a 100 ms timer, and no longer quit the application themselves (Focale ADRs 0251 and 0252).
-- Linux. `multiview_desktop_linux_runner_install` keeps each Flutter view's GTK render children alive until the engine releases the view (Focale ADR 0251). `tool/linux_view_render_lifetime.cc` checks this ownership.
 - Linux. Activating a window blocked by a modal dialog hands keyboard focus back to that dialog, so typing never reaches the blocked window.
+- Linux. Window close paths never quit the application. The host keeps the GApplication alive until the shared engine has stopped (Focale ADR 0252).
+
+## 2.0.0
+
+- Breaking. Native window calls go through FFI instead of MethodChannel. Many
+  `MultiViewDesktop` methods are now synchronous (no `await`): title, chrome,
+  min/max, visibility, focus, alwaysOnTop, and similar. Keep `await` for
+  `openWindow` / `openDialog` / `close*` / `setSize` / `setPosition` /
+  `setAlignment` / `center` / `setAspectRatio` and popup open-close
+- `PopupView` on macOS, Windows, and Linux (X11). Disabled on Wayland: popup
+  needs client-side positioning (`GDK_BACKEND=x11`)
+- Window and popup animations (`ViewAnimationConfig`, `AnimationSettings`,
+  `setForceAnimation`)
+- Deferred show via `showOnInit: false` + `completeShow()`
+- Optional file logger (`MultiAppConfig.fileLogParams` / `LogParams`)
+- `MultiViewDesktop.screen` for connected displays. Physical window bounds
+  (`getPhysicalBounds` / `setPhysicalBounds`) for mixed-DPI layouts
 
 ## 1.2.2
 

@@ -6,8 +6,42 @@
 #include <gdk/gdkx.h>
 #endif
 
+#include <dlfcn.h>
+
+#include <cstdint>
 #include <cstring>
+#include <memory>
 #include <vector>
+
+// ABI-compatible copies of embedder.h types.
+struct MvdRemoveViewResult {
+  size_t struct_size;
+  bool removed;
+  void* user_data;
+};
+
+struct MvdRemoveViewInfo {
+  size_t struct_size;
+  int64_t view_id;
+  void* user_data;
+  void (*remove_view_callback)(const MvdRemoveViewResult* result);
+};
+
+using MvdEmbedderRemoveViewFn = int (*)(void* engine,
+                                        const MvdRemoveViewInfo* info);
+
+// Teardown order (shared FlEngine, X11 GLX and Wayland EGL):
+//   1. Caller unregisters the Dart view but does not unmap yet. Close can
+//      reenter from GTK draw (fl_task_runner_wait); a synchronous hide frees
+//      the Wayland/X11 surface while gdk_cairo_draw_from_gl is still on the
+//      stack.
+//   2. On the next GTK idle: hide (unmap), then embedder RemoveView.
+//   3. After the RemoveView callback, wait kPostRemoveViewDrainMs. The
+//      callback can fire before the raster queue is idle (#164564).
+//   4. gtk_widget_destroy one window at a time, then kInterDestroyGapMs
+//      before the next. FlView dispose may RemoveView again (harmless).
+// Render descendants of FlView are retained until view finalization
+// (mvd_view_render_lifetime). X11 GLX errors are still suppressed in the runner.
 
 #define MVD_LOG MVD_LOG_WINDOW
 
@@ -389,12 +423,6 @@ void MvdLinuxWindow::Close() {
             view_id);
     return;
   }
-  // Guard against duplicate idle callbacks when the caller invokes Close()
-  // multiple times before the first gtk_window_close fires (e.g. the Dart
-  // side calling closeWindow() several times in quick succession).
-  // The flag is cleared by the idle callback just before it calls
-  // gtk_window_close, so if on_delete returns TRUE (blocking the close) a
-  // subsequent Call to Close() will queue a new callback correctly.
   if (close_pending) {
     MVD_LOG("Close  view_id=%" G_GINT64_FORMAT
             "  SKIP: gtk_window_close already queued", view_id);
@@ -433,6 +461,332 @@ void MvdLinuxWindow::Close() {
   MVD_LOG("Close  view_id=%" G_GINT64_FORMAT "  g_idle_add done", view_id);
 }
 
+namespace {
+
+int g_safe_destroy_inflight = 0;
+
+constexpr size_t kEmbedderRemoveViewIndex = 37;
+constexpr size_t kMinProcTableSize =
+    sizeof(size_t) + (kEmbedderRemoveViewIndex + 1) * sizeof(void*);
+
+// Extra time after RemoveView callback before destroying the GdkWindow/XID.
+// #164564: callback can fire before the raster queue is fully idle.
+constexpr guint kPostRemoveViewDrainMs = 800;
+// Gap after one destroy before starting the next RemoveView/destroy.
+constexpr guint kInterDestroyGapMs = 200;
+// If RemoveView never completes, destroy anyway so windows do not leak forever.
+constexpr guint kRemoveViewFallbackDestroyMs = 4000;
+
+struct SafeDestroyRequest {
+  GtkWidget* widget = nullptr;
+  FlView* view = nullptr;
+  bool should_quit = false;
+  bool destroy_scheduled = false;
+  guint drain_source_id = 0;
+  guint fallback_source_id = 0;
+};
+
+// Serialize GTK/GL teardown across windows. Parallel gtk_widget_destroy of
+// secondary FlViews on a shared FlEngine/GLX display is what crashes on X11.
+std::vector<SafeDestroyRequest*> g_destroy_queue;
+bool g_destroy_pipeline_busy = false;
+
+bool PointerInFlutterSo(void* fn, void* so_base) {
+  if (!fn || !so_base) {
+    return false;
+  }
+  Dl_info info{};
+  if (dladdr(fn, &info) == 0) {
+    return false;
+  }
+  return info.dli_fbase == so_base;
+}
+
+bool FindEmbedderRemoveView(FlEngine* engine,
+                            void** out_flutter_engine,
+                            MvdEmbedderRemoveViewFn* out_remove_view) {
+  if (!engine || !out_flutter_engine || !out_remove_view) {
+    return false;
+  }
+  void* marker = dlsym(RTLD_DEFAULT, "fl_engine_new");
+  Dl_info so_info{};
+  void* so_base = nullptr;
+  if (marker && dladdr(marker, &so_info) != 0) {
+    so_base = so_info.dli_fbase;
+  }
+  auto* base = reinterpret_cast<uint8_t*>(engine);
+  for (size_t off = sizeof(void*); off <= 512; off += sizeof(void*)) {
+    const size_t table_size = *reinterpret_cast<size_t*>(base + off);
+    if (table_size < kMinProcTableSize || table_size > 1024 ||
+        (table_size % sizeof(void*)) != 0) {
+      continue;
+    }
+    void* flutter_engine = *reinterpret_cast<void**>(base + off - sizeof(void*));
+    if (!flutter_engine) {
+      continue;
+    }
+    void* add_view = *reinterpret_cast<void**>(
+        base + off + sizeof(size_t) + 36 * sizeof(void*));
+    void* remove_view = *reinterpret_cast<void**>(
+        base + off + sizeof(size_t) +
+        kEmbedderRemoveViewIndex * sizeof(void*));
+    if (!PointerInFlutterSo(add_view, so_base) ||
+        !PointerInFlutterSo(remove_view, so_base)) {
+      continue;
+    }
+    *out_flutter_engine = flutter_engine;
+    *out_remove_view = reinterpret_cast<MvdEmbedderRemoveViewFn>(remove_view);
+    return true;
+  }
+  return false;
+}
+
+void ReleaseSafeDestroyInflight() {
+  if (g_safe_destroy_inflight > 0) {
+    --g_safe_destroy_inflight;
+  }
+}
+
+void ClearSafeDestroyTimeouts(SafeDestroyRequest* req) {
+  if (!req) {
+    return;
+  }
+  if (req->drain_source_id != 0) {
+    g_source_remove(req->drain_source_id);
+    req->drain_source_id = 0;
+  }
+  if (req->fallback_source_id != 0) {
+    g_source_remove(req->fallback_source_id);
+    req->fallback_source_id = 0;
+  }
+}
+
+void PumpDestroyQueue();
+
+gboolean DestroyWidgetAfterDrain(gpointer data) {
+  auto* req = static_cast<SafeDestroyRequest*>(data);
+  req->drain_source_id = 0;
+  if (req->destroy_scheduled) {
+    return G_SOURCE_REMOVE;
+  }
+  req->destroy_scheduled = true;
+  ClearSafeDestroyTimeouts(req);
+
+  GtkWidget* widget = req->widget;
+  const bool should_quit = req->should_quit;
+  MVD_LOG("DestroyWidgetAfterDrain  widget=%p  should_quit=%d  %s",
+          static_cast<void*>(widget), static_cast<int>(should_quit),
+          mvd_xid_str(GTK_WINDOW(widget)).c_str());
+
+  g_object_set_data(G_OBJECT(widget), "mvd-safe-destroy-req", nullptr);
+
+  gtk_widget_destroy(widget);
+  g_object_unref(widget);
+  if (req->view) {
+    // view was only borrowed; window owned it. Clear so we do not touch it.
+    req->view = nullptr;
+  }
+  ReleaseSafeDestroyInflight();
+  delete req;
+
+  if (should_quit) {
+    g_destroy_pipeline_busy = false;
+    GApplication* app = g_application_get_default();
+    MVD_LOG("DestroyWidgetAfterDrain  g_application_quit  app=%p",
+            static_cast<void*>(app));
+    if (app) {
+      g_application_quit(app);
+    }
+  } else {
+    // Keep pipeline busy until gap elapses so the next destroy does not
+    // overlap residual GLX work from this one.
+    g_timeout_add(
+        kInterDestroyGapMs,
+        [](gpointer) -> gboolean {
+          g_destroy_pipeline_busy = false;
+          PumpDestroyQueue();
+          return G_SOURCE_REMOVE;
+        },
+        nullptr);
+  }
+  return G_SOURCE_REMOVE;
+}
+
+void ScheduleWidgetDestroy(SafeDestroyRequest* req, guint delay_ms,
+                           const char* reason) {
+  if (!req || req->destroy_scheduled) {
+    return;
+  }
+  if (req->drain_source_id != 0) {
+    return;
+  }
+  MVD_LOG("ScheduleWidgetDestroy  widget=%p  delay_ms=%u  reason=%s",
+          static_cast<void*>(req->widget), delay_ms, reason);
+  req->drain_source_id =
+      g_timeout_add(delay_ms, DestroyWidgetAfterDrain, req);
+}
+
+gboolean FallbackDestroyTimeout(gpointer data) {
+  auto* req = static_cast<SafeDestroyRequest*>(data);
+  req->fallback_source_id = 0;
+  ScheduleWidgetDestroy(req, 0, "remove_view_fallback");
+  return G_SOURCE_REMOVE;
+}
+
+gboolean OnEmbedderViewRemovedMain(gpointer data) {
+  auto* req = static_cast<SafeDestroyRequest*>(data);
+  ScheduleWidgetDestroy(req, kPostRemoveViewDrainMs, "remove_view_callback");
+  return G_SOURCE_REMOVE;
+}
+
+void OnEmbedderViewRemoved(const MvdRemoveViewResult* result) {
+  auto* req = result ? static_cast<SafeDestroyRequest*>(result->user_data)
+                     : nullptr;
+  MVD_LOG("OnEmbedderViewRemoved  removed=%d  req=%p",
+          static_cast<int>(result && result->removed),
+          static_cast<void*>(req));
+  if (!req) {
+    return;
+  }
+  g_main_context_invoke(g_main_context_default(), OnEmbedderViewRemovedMain,
+                        req);
+}
+
+bool RequestEngineRemoveView(FlEngine* engine, int64_t flutter_view_id,
+                             SafeDestroyRequest* req) {
+  void* flutter_engine = nullptr;
+  MvdEmbedderRemoveViewFn embedder_remove_view = nullptr;
+  // view_id 0 is the implicit/primary view - embedder rejects RemoveView.
+  if (!engine || flutter_view_id <= 0 || !req ||
+      !FindEmbedderRemoveView(engine, &flutter_engine, &embedder_remove_view)) {
+    MVD_LOG("RequestEngineRemoveView  skip  engine=%p  view_id=%"
+            G_GINT64_FORMAT, static_cast<void*>(engine), flutter_view_id);
+    return false;
+  }
+  MvdRemoveViewInfo info{};
+  info.struct_size = sizeof(MvdRemoveViewInfo);
+  info.view_id = flutter_view_id;
+  info.user_data = req;
+  info.remove_view_callback = OnEmbedderViewRemoved;
+  MVD_LOG("RequestEngineRemoveView  calling embedder RemoveView  view_id=%"
+          G_GINT64_FORMAT, flutter_view_id);
+  const int remove_result = embedder_remove_view(flutter_engine, &info);
+  MVD_LOG("RequestEngineRemoveView  returned %d", remove_result);
+  return remove_result == 0;
+}
+
+void StartDestroyRequest(SafeDestroyRequest* req) {
+  FlView* view = req->view;
+  FlEngine* engine = (view && FL_IS_VIEW(view)) ? fl_view_get_engine(view)
+                                                : nullptr;
+  const int64_t flutter_view_id = view ? fl_view_get_id(view) : -1;
+  MVD_LOG("StartDestroyRequest  widget=%p  view=%p  flutter_view_id=%"
+          G_GINT64_FORMAT "  engine=%p  should_quit=%d",
+          static_cast<void*>(req->widget), static_cast<void*>(view),
+          flutter_view_id, static_cast<void*>(engine),
+          static_cast<int>(req->should_quit));
+
+  if (RequestEngineRemoveView(engine, flutter_view_id, req)) {
+    req->fallback_source_id =
+        g_timeout_add(kRemoveViewFallbackDestroyMs, FallbackDestroyTimeout,
+                      req);
+  } else {
+    ScheduleWidgetDestroy(req, kPostRemoveViewDrainMs, "no_remove_view");
+  }
+}
+
+void HidePreservingGeometry(GtkWidget* widget) {
+  if (!widget || !gtk_widget_get_visible(widget)) {
+    return;
+  }
+  GtkWindow* window = GTK_WINDOW(widget);
+  gint x = 0;
+  gint y = 0;
+  gint w = 0;
+  gint h = 0;
+  gtk_window_get_position(window, &x, &y);
+  gtk_window_get_size(window, &w, &h);
+  MVD_LOG("HidePreservingGeometry  widget=%p  pos=(%d,%d) size=%dx%d  %s",
+          static_cast<void*>(widget), x, y, w, h,
+          mvd_xid_str(window).c_str());
+  gtk_widget_hide(widget);
+  gtk_window_move(window, x, y);
+  gtk_window_resize(window, w, h);
+}
+
+gboolean BeginQueuedDestroy(gpointer /*data*/) {
+  if (g_destroy_queue.empty()) {
+    g_destroy_pipeline_busy = false;
+    return G_SOURCE_REMOVE;
+  }
+  SafeDestroyRequest* req = g_destroy_queue.front();
+  g_destroy_queue.erase(g_destroy_queue.begin());
+  // Unmap only after the close call has returned to the GTK main loop.
+  HidePreservingGeometry(req->widget);
+  StartDestroyRequest(req);
+  return G_SOURCE_REMOVE;
+}
+
+void PumpDestroyQueue() {
+  if (g_destroy_pipeline_busy) {
+    return;
+  }
+  if (g_destroy_queue.empty()) {
+    return;
+  }
+  g_destroy_pipeline_busy = true;
+  g_idle_add(BeginQueuedDestroy, nullptr);
+}
+
+}  // namespace
+
+void MvdLinuxWindow::ScheduleSafeDestroy(GtkWindow* window, FlView* view,
+                                         bool should_quit) {
+  if (!window) {
+    return;
+  }
+  GtkWidget* widget = GTK_WIDGET(window);
+  if (g_object_get_data(G_OBJECT(widget), "mvd-safe-destroy")) {
+    return;
+  }
+  g_object_set_data(G_OBJECT(widget), "mvd-safe-destroy", GINT_TO_POINTER(1));
+
+  ++g_safe_destroy_inflight;
+  g_object_ref(widget);
+
+  auto* req = new SafeDestroyRequest();
+  req->widget = widget;
+  req->view = view;
+  req->should_quit = should_quit;
+  g_object_set_data(G_OBJECT(widget), "mvd-safe-destroy-req", req);
+
+  MVD_LOG("ScheduleSafeDestroy  enqueue  widget=%p  view=%p  should_quit=%d"
+          "  queue_size=%zu  busy=%d",
+          static_cast<void*>(widget), static_cast<void*>(view),
+          static_cast<int>(should_quit), g_destroy_queue.size() + 1,
+          static_cast<int>(g_destroy_pipeline_busy));
+
+  g_destroy_queue.push_back(req);
+  PumpDestroyQueue();
+}
+
+bool MvdLinuxWindow::HasSafeDestroyInFlight() {
+  return g_safe_destroy_inflight > 0;
+}
+
+void MvdLinuxWindow::WaitUntilSafeToCreateView() {
+  if (g_safe_destroy_inflight <= 0) {
+    return;
+  }
+  MVD_LOG("WaitUntilSafeToCreateView  inflight=%d", g_safe_destroy_inflight);
+  const gint64 deadline = g_get_monotonic_time() + 3 * G_TIME_SPAN_SECOND;
+  while (g_safe_destroy_inflight > 0 && g_get_monotonic_time() < deadline) {
+    g_main_context_iteration(nullptr, TRUE);
+  }
+  MVD_LOG("WaitUntilSafeToCreateView  done  inflight=%d",
+          g_safe_destroy_inflight);
+}
+
 void MvdLinuxWindow::Destroy() {
   MVD_LOG("Destroy  START  view_id=%" G_GINT64_FORMAT
           "  window=%p  view=%p  is_modal=%d  modal_owner=%" G_GINT64_FORMAT
@@ -450,9 +804,10 @@ void MvdLinuxWindow::Destroy() {
   const int64_t owner_id = modal_owner_view_id;
   const int64_t vid = view_id;
   GtkWindow* w = window;
+  FlView* fl_view = view;
   MVD_LOG("Destroy  nulling this->window and this->view  view_id=%"
           G_GINT64_FORMAT "  w=%p  view=%p",
-          view_id, static_cast<void*>(w), static_cast<void*>(view));
+          view_id, static_cast<void*>(w), static_cast<void*>(fl_view));
   window = nullptr;
   view = nullptr;
   MVD_LOG("Destroy  calling Unregister(%" G_GINT64_FORMAT ")  w=%p",
@@ -470,35 +825,9 @@ void MvdLinuxWindow::Destroy() {
     FocusModalTarget(GetActiveModalFocusTarget(owner_id));
   }
 
-  // Defer unmapping too: platform messages can run inside a GTK GL draw.
-  // Keep the GObject alive until the main-loop callback.
-  g_object_ref(GTK_WIDGET(w));
-
-  struct DestroyCtx { GtkWidget* widget; int64_t vid; };
-  auto* ctx = new DestroyCtx{GTK_WIDGET(w), vid};
-
-  MVD_LOG("Destroy  scheduling main-loop gtk_widget_destroy"
-          "  view_id=%" G_GINT64_FORMAT "  w=%p", vid, static_cast<void*>(w));
-
-  g_idle_add_full(
-      G_PRIORITY_DEFAULT_IDLE,
-      [](gpointer data) -> gboolean {
-        auto* c = static_cast<DestroyCtx*>(data);
-        MVD_LOG("Destroy  deferred_destroy_cb  view_id=%" G_GINT64_FORMAT
-                "  calling gtk_widget_destroy  widget=%p",
-                c->vid, static_cast<void*>(c->widget));
-        gtk_widget_hide(c->widget);
-        gtk_widget_destroy(c->widget);
-        MVD_LOG("Destroy  deferred_destroy_cb  view_id=%" G_GINT64_FORMAT
-                "  gtk_widget_destroy returned  releasing extra GObject ref",
-                c->vid);
-        g_object_unref(c->widget);
-        delete c;
-        return G_SOURCE_REMOVE;
-      },
-      ctx, nullptr);
-
-  MVD_LOG("Destroy  END (deferred)  original view_id=%" G_GINT64_FORMAT, vid);
+  ScheduleSafeDestroy(w, fl_view, false);
+  MVD_LOG("Destroy  END (safe destroy scheduled)  original view_id=%"
+          G_GINT64_FORMAT, vid);
 }
 
 namespace {
@@ -753,7 +1082,19 @@ void MvdLinuxWindow::Show() {
   // the coordinates in the X11 MapRequest (PPosition hint).
   ApplyPendingMove();
   gtk_widget_show(GTK_WIDGET(window));
-  gtk_window_present(window);
+
+  if (is_popup) {
+    // Like Windows owner HWND / macOS addChildWindow: above the parent only.
+    GtkWindow* parent = gtk_window_get_transient_for(window);
+    GdkWindow* self_gdk = gtk_widget_get_window(GTK_WIDGET(window));
+    GdkWindow* parent_gdk =
+        parent ? gtk_widget_get_window(GTK_WIDGET(parent)) : nullptr;
+    if (self_gdk && parent_gdk) {
+      gdk_window_restack(self_gdk, parent_gdk, TRUE);
+    }
+  } else {
+    gtk_window_present(window);
+  }
   SeedConfigureBaseline();
   MVD_LOG("Show  DONE  view_id=%" G_GINT64_FORMAT, view_id);
 }
@@ -847,11 +1188,30 @@ void MvdLinuxWindow::SetAspectRatio(float ar) {
   if (!window) {
     return;
   }
-  geometry.min_aspect = ar;
-  geometry.max_aspect = ar;
-  if (ar >= 0) {
+  RefreshShadowCache();
+  geometry.base_width = 0;
+  geometry.base_height = 0;
+  hints = static_cast<GdkWindowHints>(hints & ~GDK_HINT_BASE_SIZE);
+
+  if (ar > 0) {
+    gint content_w = 0;
+    gint content_h = 0;
+    gtk_window_get_size(window, &content_w, &content_h);
+    // GTK applies GDK_HINT_ASPECT to the CSD frame (header + shadow), not to
+    // gtk_window_get_size(). Convert content ratio so the frame constraint
+    // keeps the content at `ar` (e.g. 16:9 at 700px -> 1244, not 1368).
+    const gint extra_w = cached_shadow_w;
+    const gint extra_h = cached_shadow_h;
+    const gint outer_h = content_h + extra_h;
+    const double outer_ar =
+        outer_h > 0 ? (static_cast<double>(ar) * content_h + extra_w) / outer_h
+                    : ar;
+    geometry.min_aspect = outer_ar;
+    geometry.max_aspect = outer_ar;
     hints = static_cast<GdkWindowHints>(hints | GDK_HINT_ASPECT);
   } else {
+    geometry.min_aspect = 0;
+    geometry.max_aspect = 0;
     hints = static_cast<GdkWindowHints>(hints & ~GDK_HINT_ASPECT);
   }
   ReapplyGeometryHints();
@@ -895,8 +1255,12 @@ void MvdLinuxWindow::SetBounds(FlValue* args) {
   FlValue* x = fl_value_lookup_string(args, "x");
   FlValue* y = fl_value_lookup_string(args, "y");
   if (x && y) {
-    gtk_window_move(window, static_cast<gint>(fl_value_get_float(x)),
-                    static_cast<gint>(fl_value_get_float(y)));
+    pending_move_x = static_cast<gint>(fl_value_get_float(x));
+    pending_move_y = static_cast<gint>(fl_value_get_float(y));
+    has_pending_move = true;
+    if (gtk_widget_get_visible(GTK_WIDGET(window))) {
+      ApplyPendingMove();
+    }
   }
   FlValue* w = fl_value_lookup_string(args, "width");
   FlValue* h = fl_value_lookup_string(args, "height");
@@ -1033,6 +1397,16 @@ void MvdLinuxWindow::SetMinimumSize(float w, float h) {
   ReapplyGeometryHints();
 }
 
+void MvdLinuxWindow::GetMinimumSize(float* w, float* h) const {
+  if (w) *w = static_cast<float>(geometry.min_width);
+  if (h) *h = static_cast<float>(geometry.min_height);
+}
+
+void MvdLinuxWindow::GetMaximumSize(float* w, float* h) const {
+  if (w) *w = static_cast<float>(geometry.max_width);
+  if (h) *h = static_cast<float>(geometry.max_height);
+}
+
 void MvdLinuxWindow::SetMaximumSize(float w, float h) {
   if (!window) {
     return;
@@ -1136,9 +1510,14 @@ bool MvdLinuxWindow::IsMinimizable() {
 // Updates type hint and taskbar-skip hints from stored state.
 void MvdLinuxWindow::ApplyWindowTypeHint() {
   if (!window) return;
-  gtk_window_set_type_hint(
-      window,
-      is_minimizable ? GDK_WINDOW_TYPE_HINT_NORMAL : GDK_WINDOW_TYPE_HINT_DIALOG);
+  if (is_popup) {
+    gtk_window_set_type_hint(window, GDK_WINDOW_TYPE_HINT_DIALOG);
+  } else {
+    gtk_window_set_type_hint(
+        window,
+        is_minimizable ? GDK_WINDOW_TYPE_HINT_NORMAL
+                       : GDK_WINDOW_TYPE_HINT_DIALOG);
+  }
   gtk_window_set_skip_taskbar_hint(window, is_skip_taskbar ? TRUE : FALSE);
   gtk_window_set_skip_pager_hint(window, is_skip_taskbar ? TRUE : FALSE);
 }
@@ -1268,28 +1647,9 @@ void MvdLinuxWindow::SetTitleBarStyle(const gchar* style, bool wbv) {
       }
     }
 
-    // When the header bar is hidden the CSD frame still has rounded top
-    // corners, but Flutter's GL content is rectangular and protrudes past
-    // them. Fix: override the CSS border-radius of the window content area
-    // to 0, which makes the inner visible area square-cornered so it matches
-    // Flutter's rectangular rendering. The outer shadow decoration is
-    // separate and remains unchanged.
-    if (!csd_radius_provider) {
-      csd_radius_provider = gtk_css_provider_new();
-      // Use PRIORITY_USER (800) so our rule beats the theme (PRIORITY_THEME=200)
-      // and application-level providers (PRIORITY_APPLICATION=600).
-      // Target both window.csd (background) and decoration (shadow/border) nodes
-      // since Adwaita rounds corners on both elements independently.
-      gtk_style_context_add_provider(
-          gtk_widget_get_style_context(GTK_WIDGET(window)),
-          GTK_STYLE_PROVIDER(csd_radius_provider),
-          GTK_STYLE_PROVIDER_PRIORITY_USER);
-    }
-    gtk_css_provider_load_from_data(
-        csd_radius_provider,
-        hidden ? "window.csd { border-radius: 0; }\n"
-                 "decoration { border-radius: 0; }" : "",
-        -1, nullptr);
+    // Hidden title bar: Flutter is rectangular, so force CSD radius to 0.
+    // Popups use ApplyCsdCornerRadius(>0) so the native clip matches Flutter.
+    ApplyCsdCornerRadius(hidden ? 0 : -1);
 
     // Clear the shadow cache: it was measured with the header bar visible and
     // includes the header bar height in the GDK-GTK delta. After toggling
@@ -1338,6 +1698,50 @@ void MvdLinuxWindow::SetTitleBarStyle(const gchar* style, bool wbv) {
   // }
 }
 
+
+void MvdLinuxWindow::ApplyCsdCornerRadius(int radius_px) {
+  if (!window) {
+    return;
+  }
+  if (!csd_radius_provider) {
+    csd_radius_provider = gtk_css_provider_new();
+    // PRIORITY_USER (800) beats theme (200) and application (600).
+    gtk_style_context_add_provider(
+        gtk_widget_get_style_context(GTK_WIDGET(window)),
+        GTK_STYLE_PROVIDER(csd_radius_provider),
+        GTK_STYLE_PROVIDER_PRIORITY_USER);
+  }
+  if (radius_px < 0) {
+    gtk_css_provider_load_from_data(csd_radius_provider, "", -1, nullptr);
+    return;
+  }
+  g_autofree gchar* css = g_strdup_printf(
+      "window, window.csd, decoration, decoration:backdrop {\n"
+      "  border-radius: %dpx;\n"
+      "  border: none;\n"
+      "  outline: none;\n"
+      "}\n"
+      "window.csd {\n"
+      "  box-shadow: none;\n"
+      "}\n"
+      ".titlebar, headerbar {\n"
+      "  min-height: 0;\n"
+      "  padding: 0;\n"
+      "  margin: 0;\n"
+      "  border: none;\n"
+      "  outline: none;\n"
+      "  background: none;\n"
+      "  box-shadow: none;\n"
+      "}\n",
+      radius_px);
+  gtk_css_provider_load_from_data(csd_radius_provider, css, -1, nullptr);
+  if (GtkWidget* titlebar = gtk_window_get_titlebar(window)) {
+    gtk_style_context_add_provider(
+        gtk_widget_get_style_context(titlebar),
+        GTK_STYLE_PROVIDER(csd_radius_provider),
+        GTK_STYLE_PROVIDER_PRIORITY_USER);
+  }
+}
 
 FlValue* MvdLinuxWindow::GetTitleBarStyle() {
   const char* style = title_bar_style ? title_bar_style : "normal";

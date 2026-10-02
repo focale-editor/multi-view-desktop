@@ -87,18 +87,21 @@ class DialogModalLayer extends StatelessWidget {
     return ValueListenableBuilder<List<DialogInfo>>(
       valueListenable: notifier,
       builder: (context, modalList, _) {
-        bool showBarrier = showBarrierForNotModalDialog && modalList.isNotEmpty;
+        bool showBarrier =
+            showBarrierForNotModalDialog &&
+            modalList.isNotEmpty &&
+            modalList.any((e) => !e.isModal && MultiViewDesktop.fromId(e.id).isVisible());
         final bool anyIsModal = modalList.any((e) => e.isModal);
         if (anyIsModal) {
-          showBarrier = true;
+          showBarrier = false;
         }
         return GestureDetector(
           behavior: HitTestBehavior.translucent,
-          onTap: () async {
+          onTap: () {
             if (showBarrier && !anyIsModal) {
-              final dialogsList = modalList.map((e)=> e.id).toList()..sort();
-              for (final id in dialogsList){
-                await MultiViewDesktop.fromId(id).focus();
+              final dialogsList = modalList.map((e) => e.id).toList()..sort();
+              for (final id in dialogsList) {
+                MultiViewDesktop.fromId(id).focus();
               }
             }
           },

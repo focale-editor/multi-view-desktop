@@ -16,6 +16,7 @@
 #include "include/multi_view_desktop/multi_view_desktop.h"
 
 #include "multi_view_desktop.h"
+#include "mvd_windows_screen.h"
 #include "mvd_windows_taskbar_menu.h"
 
 #pragma comment(lib, "dwmapi.lib")
@@ -72,16 +73,13 @@ namespace {
 
         if (progress < 0) {
             taskbar->SetProgressState(hWnd, TBPF_NOPROGRESS);
-            taskbar->SetProgressValue(hWnd, static_cast<int32_t>(0),
-                                      static_cast<int32_t>(0));
+            taskbar->SetProgressValue(hWnd, 0, 100);
         } else if (progress > 1) {
             taskbar->SetProgressState(hWnd, TBPF_INDETERMINATE);
-            taskbar->SetProgressValue(hWnd, static_cast<int32_t>(100),
-                                      static_cast<int32_t>(100));
         } else {
-            taskbar->SetProgressState(hWnd, TBPF_INDETERMINATE);
-            taskbar->SetProgressValue(hWnd, static_cast<int32_t>(progress * 100),
-                                      static_cast<int32_t>(100));
+            taskbar->SetProgressState(hWnd, TBPF_NORMAL);
+            taskbar->SetProgressValue(
+                    hWnd, static_cast<ULONGLONG>(progress * 100.0), 100);
         }
     }
 
@@ -100,20 +98,38 @@ namespace {
 
 constexpr const wchar_t kWindowClassName[] = L"FLUTTER_RUNNER_WIN32_WINDOW";
 
-/// Registry key for app theme preference.
-///
-/// A value of 0 indicates apps should use dark mode. A non-zero or missing
-/// value indicates apps should use light mode.
-constexpr const wchar_t kGetPreferredBrightnessRegKey[] =
-        L"Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize";
-constexpr const wchar_t kGetPreferredBrightnessRegValue[] =
-        L"AppsUseLightTheme";
-
 #define APPBAR_CALLBACK WM_USER + 0x01;
 
 constexpr const wchar_t kFlutterViewWindowClassName[] = L"FLUTTERVIEW";
 constexpr const wchar_t kMultiViewHostWindowClassName[] =
         L"MULTIVIEW_DESKTOP_HOST_WINDOW";
+constexpr const wchar_t kMultiViewPopupWindowClassName[] =
+        L"MULTIVIEW_DESKTOP_POPUP_WINDOW";
+
+#ifndef DWMWA_WINDOW_CORNER_PREFERENCE
+#define DWMWA_WINDOW_CORNER_PREFERENCE 33
+#endif
+#ifndef DWMWCP_DONOTROUND
+#define DWMWCP_DONOTROUND 1
+#endif
+#ifndef DWMWCP_ROUND
+#define DWMWCP_ROUND 2
+#endif
+#ifndef DWMWA_BORDER_COLOR
+#define DWMWA_BORDER_COLOR 34
+#endif
+#ifndef DWMWA_CAPTION_COLOR
+#define DWMWA_CAPTION_COLOR 35
+#endif
+#ifndef DWMWA_COLOR_NONE
+#define DWMWA_COLOR_NONE 0xFFFFFFFEu
+#endif
+#ifndef DWMWA_SYSTEMBACKDROP_TYPE
+#define DWMWA_SYSTEMBACKDROP_TYPE 38
+#endif
+#ifndef DWMSBT_NONE
+#define DWMSBT_NONE 1
+#endif
 
 namespace {
 
@@ -144,6 +160,62 @@ namespace {
         registered = true;
     }
 
+    void RegisterMultiViewPopupWindowClass() {
+        static bool registered = false;
+        if (registered) {
+            return;
+        }
+        HINSTANCE hInstance = GetModuleHandle(nullptr);
+        WNDCLASSEX window_class = {};
+        window_class.cbSize = sizeof(WNDCLASSEX);
+        // Survives WS_EX_LAYERED used by open/close fade. DWM shadow is
+        // re-applied after fade (opacity == 1) so setHasShadow can toggle it.
+        window_class.style = CS_HREDRAW | CS_VREDRAW | CS_DROPSHADOW;
+        window_class.lpfnWndProc = multi_view_desktop::MultiViewDesktop::HostWndProc;
+        window_class.hInstance = hInstance;
+        window_class.hCursor = LoadCursor(nullptr, IDC_ARROW);
+        window_class.hbrBackground =
+                static_cast<HBRUSH>(GetStockObject(NULL_BRUSH));
+        window_class.lpszClassName = kMultiViewPopupWindowClassName;
+        RegisterClassEx(&window_class);
+        registered = true;
+    }
+
+    // Match macOS popup chrome: no caption/border, no Win11 mica slab,
+    // DWM drop shadow + rounded corners. Do not call this during fade.
+    void ApplyPopupDwmChrome(HWND hwnd) {
+        if (!hwnd) {
+            return;
+        }
+
+        const DWMNCRENDERINGPOLICY ncrp = DWMNCRP_ENABLED;
+        DwmSetWindowAttribute(hwnd, DWMWA_NCRENDERING_POLICY, &ncrp,
+                              sizeof(ncrp));
+
+        BOOL immersive_dark = FALSE;
+        DwmSetWindowAttribute(hwnd, DWMWA_USE_IMMERSIVE_DARK_MODE,
+                              &immersive_dark, sizeof(immersive_dark));
+
+        const DWORD corner = DWMWCP_ROUND;
+        DwmSetWindowAttribute(hwnd, DWMWA_WINDOW_CORNER_PREFERENCE, &corner,
+                              sizeof(corner));
+
+        const COLORREF no_border = DWMWA_COLOR_NONE;
+        DwmSetWindowAttribute(hwnd, DWMWA_BORDER_COLOR, &no_border,
+                              sizeof(no_border));
+
+        const DWORD backdrop = DWMSBT_NONE;
+        DwmSetWindowAttribute(hwnd, DWMWA_SYSTEMBACKDROP_TYPE, &backdrop,
+                              sizeof(backdrop));
+
+        MARGINS margins = {0, 0, 0, 1};
+        DwmExtendFrameIntoClientArea(hwnd, &margins);
+
+        SetWindowPos(hwnd, nullptr, 0, 0, 0, 0,
+                     SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOOWNERZORDER |
+                     SWP_NOACTIVATE | SWP_FRAMECHANGED);
+    }
+
     double DefaultMonitorScaleFactor() {
         POINT origin = {0, 0};
         HMONITOR monitor =
@@ -153,6 +225,9 @@ namespace {
     }
 
 }  // namespace
+
+extern "C" int32_t mvd_emit_event(const char* event_name, int64_t view_id,
+                                  int64_t arg);
 
 namespace multi_view_desktop {
 
@@ -256,6 +331,23 @@ namespace multi_view_desktop {
             if (system_menu) {
                 EnableMenuItem(system_menu, SC_CLOSE, MF_BYCOMMAND | MF_GRAYED);
             }
+        }
+        return hwnd;
+    }
+
+    HWND MultiViewDesktop::CreatePopupHostWindow(int client_width,
+                                                 int client_height,
+                                                 HWND owner_hwnd) {
+        RegisterMultiViewPopupWindowClass();
+        const DWORD style = WS_POPUP | WS_CLIPCHILDREN;
+        // No WS_EX_LAYERED here: it blocks DWM shadow until opacity fade needs it.
+        const DWORD ex_style = WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE;
+        HWND hwnd = CreateWindowEx(
+                ex_style, kMultiViewPopupWindowClassName, L"", style, 0, 0,
+                client_width, client_height, owner_hwnd, nullptr,
+                GetModuleHandle(nullptr), nullptr);
+        if (hwnd) {
+            ApplyPopupDwmChrome(hwnd);
         }
         return hwnd;
     }
@@ -436,6 +528,14 @@ namespace multi_view_desktop {
 }
 
 switch (message) {
+case WM_ERASEBKGND: {
+MultiViewDesktop *window =
+        MultiViewDesktop::Instance().FindByHwnd(hwnd);
+if (window != nullptr && window->is_popup_) {
+    return 1;
+}
+break;
+}
 case WM_SIZE: {
 MultiViewDesktop *window =
         MultiViewDesktop::Instance().FindByHwnd(hwnd);
@@ -612,32 +712,34 @@ void MultiViewDesktop::DestroyEntry(int64_t target_view_id) {
 }
 
 void MultiViewDesktop::EmitEvent(const std::string &event_name,
-                                 int64_t target_view_id) {
+                                 int64_t target_view_id, int64_t arg) {
+    if (mvd_emit_event(event_name.c_str(), target_view_id, arg)) {
+        return;
+    }
     if (!channel_) {
         return;
     }
+    flutter::EncodableMap map{
+            {flutter::EncodableValue("eventName"),
+                    flutter::EncodableValue(event_name)},
+    };
+    if (target_view_id != -1) {
+        map[flutter::EncodableValue("viewId")] =
+                flutter::EncodableValue(target_view_id);
+    }
+    if (event_name == "viewCreated") {
+        map[flutter::EncodableValue("token")] = flutter::EncodableValue(arg);
+    }
+    if (event_name == "taskbarMenuItemSelected") {
+        map[flutter::EncodableValue("id")] = flutter::EncodableValue(arg);
+    }
     channel_->InvokeMethod(
             "onEvent",
-            std::make_unique<flutter::EncodableValue>(flutter::EncodableMap{
-                    {flutter::EncodableValue("eventName"),
-                            flutter::EncodableValue(event_name)},
-                    {flutter::EncodableValue("viewId"),
-                            flutter::EncodableValue(target_view_id)},
-            }));
+            std::make_unique<flutter::EncodableValue>(std::move(map)));
 }
 
 void MultiViewDesktop::EmitTaskbarMenuItemSelected(int menu_item_id) {
-    if (!channel_) {
-        return;
-    }
-    channel_->InvokeMethod(
-            "onEvent",
-            std::make_unique<flutter::EncodableValue>(flutter::EncodableMap{
-                    {flutter::EncodableValue("eventName"),
-                            flutter::EncodableValue("taskbarMenuItemSelected")},
-                    {flutter::EncodableValue("id"),
-                            flutter::EncodableValue(menu_item_id)},
-            }));
+    EmitEvent("taskbarMenuItemSelected", -1, menu_item_id);
 }
 
 int64_t MultiViewDesktop::Int64FromMap(const flutter::EncodableMap &args,
@@ -697,9 +799,9 @@ std::string MultiViewDesktop::StringFromMap(const flutter::EncodableMap &args,
     return fallback;
 }
 
-void MultiViewDesktop::CreateSecondaryWindow(const flutter::EncodableMap &args) {
+int64_t MultiViewDesktop::CreateSecondaryWindow(const flutter::EncodableMap &args) {
     if (!engine_) {
-        return;
+        return -1;
     }
 
     const int token = static_cast<int>(Int64FromMap(args, "token"));
@@ -710,7 +812,13 @@ void MultiViewDesktop::CreateSecondaryWindow(const flutter::EncodableMap &args) 
     const bool window_button_visibility =
             BoolFromMap(args, "windowButtonVisibility", true);
 
-    const double scale = DefaultMonitorScaleFactor();
+    const auto *position = std::get_if<flutter::EncodableMap>(
+            ValueOrNull(args, "position"));
+    const double scale = position != nullptr
+            ? MvdWindowsScaleForLogicalRect(
+                    DoubleFromMap(*position, "x", 0),
+                    DoubleFromMap(*position, "y", 0), width, height)
+            : DefaultMonitorScaleFactor();
     const int client_width = static_cast<int>(width * scale);
     const int client_height = static_cast<int>(height * scale);
 
@@ -720,7 +828,7 @@ void MultiViewDesktop::CreateSecondaryWindow(const flutter::EncodableMap &args) 
     HWND host_hwnd =
             CreateHostTopLevelWindow(wide_title, client_width, client_height);
     if (!host_hwnd) {
-        return;
+        return -1;
     }
 
     FlutterDesktopViewControllerProperties properties = {
@@ -731,7 +839,7 @@ void MultiViewDesktop::CreateSecondaryWindow(const flutter::EncodableMap &args) 
             FlutterDesktopEngineCreateViewController(engine_, &properties);
     if (!view_controller) {
         DestroyWindow(host_hwnd);
-        return;
+        return -1;
     }
 
     const int64_t flutter_view_id =
@@ -763,37 +871,26 @@ void MultiViewDesktop::CreateSecondaryWindow(const flutter::EncodableMap &args) 
         }
     }
 
-    const auto *position = std::get_if<flutter::EncodableMap>(
-            ValueOrNull(args, "position"));
     if (position != nullptr && window) {
         flutter::EncodableMap pos_args = *position;
         window->SetPosition(pos_args);
     } else if (window) {
         window->Center();
     }
+    if (window) {
+        window->RefreshPixelRatio();
+    }
 
-    ShowWindow(host_hwnd, SW_SHOW);
-    SetForegroundWindow(host_hwnd);
     FlutterDesktopViewControllerForceRedraw(view_controller);
 
-    if (channel_) {
-        channel_->InvokeMethod(
-                "onEvent",
-                std::make_unique<flutter::EncodableValue>(flutter::EncodableMap{
-                        {flutter::EncodableValue("eventName"),
-                                flutter::EncodableValue("viewCreated")},
-                        {flutter::EncodableValue("viewId"),
-                                flutter::EncodableValue(
-                                        flutter_view_id)},
-                        {flutter::EncodableValue("token"), flutter::EncodableValue(token)},
-                }));
-    }
+    EmitEvent("viewCreated", flutter_view_id, token);
+    return flutter_view_id;
 }
 
-void MultiViewDesktop::CreateModalDialogWindow(
+int64_t MultiViewDesktop::CreateModalDialogWindow(
         const flutter::EncodableMap &args) {
     if (!engine_) {
-        return;
+        return -1;
     }
 
     const int token = static_cast<int>(Int64FromMap(args, "token"));
@@ -808,10 +905,20 @@ void MultiViewDesktop::CreateModalDialogWindow(
 
     MultiViewDesktop *parent = FindByViewId(parent_id);
     if (is_modal && parent == nullptr) {
-        return;
+        return -1;
     }
 
-    const double scale = DefaultMonitorScaleFactor();
+    const auto *position = std::get_if<flutter::EncodableMap>(
+            ValueOrNull(args, "position"));
+    double scale = DefaultMonitorScaleFactor();
+    if (position != nullptr) {
+        scale = MvdWindowsScaleForLogicalRect(
+                DoubleFromMap(*position, "x", 0),
+                DoubleFromMap(*position, "y", 0), width, height);
+    } else if (parent != nullptr && parent->GetMainWindow()) {
+        parent->RefreshPixelRatio();
+        scale = parent->pixel_ratio_ > 0 ? parent->pixel_ratio_ : 1.0;
+    }
     const int client_width = static_cast<int>(width * scale);
     const int client_height = static_cast<int>(height * scale);
 
@@ -824,7 +931,7 @@ void MultiViewDesktop::CreateModalDialogWindow(
             wide_title, client_width, client_height, is_modal, show_close_button,
             parent_hwnd);
     if (!host_hwnd) {
-        return;
+        return -1;
     }
 
     FlutterDesktopViewControllerProperties properties = {
@@ -835,7 +942,7 @@ void MultiViewDesktop::CreateModalDialogWindow(
             FlutterDesktopEngineCreateViewController(engine_, &properties);
     if (!view_controller) {
         DestroyWindow(host_hwnd);
-        return;
+        return -1;
     }
 
     const int64_t flutter_view_id =
@@ -886,43 +993,122 @@ void MultiViewDesktop::CreateModalDialogWindow(
 
     if (is_modal && parent_hwnd != nullptr) {
         CenterDialogOnOwner(host_hwnd, parent_hwnd);
-    } else {
-        const auto *position = std::get_if<flutter::EncodableMap>(
-                ValueOrNull(args, "position"));
-        if (position != nullptr && window) {
-            flutter::EncodableMap pos_args = *position;
-            window->SetPosition(pos_args);
-        } else if (parent_hwnd != nullptr) {
-            CenterDialogOnOwner(host_hwnd, parent_hwnd);
-        } else if (window) {
-            window->Center();
-        }
+    } else if (position != nullptr && window) {
+        flutter::EncodableMap pos_args = *position;
+        window->SetPosition(pos_args);
+    } else if (parent_hwnd != nullptr) {
+        CenterDialogOnOwner(host_hwnd, parent_hwnd);
+    } else if (window) {
+        window->Center();
+    }
+    if (window) {
+        window->RefreshPixelRatio();
     }
 
-    if (is_modal) {
-        ShowWindow(host_hwnd, SW_SHOW);
-        SetForegroundWindow(host_hwnd);
-        if (parent_hwnd != nullptr) {
-            UpdateModalStateLayer(parent_hwnd);
+    FlutterDesktopViewControllerForceRedraw(view_controller);
+
+    EmitEvent("viewCreated", flutter_view_id, token);
+    return flutter_view_id;
+}
+
+void MultiViewDesktop::CompleteModalDialog(int64_t target_view_id) {
+    MultiViewDesktop *window = FindByViewId(target_view_id);
+    if (window == nullptr) {
+        return;
+    }
+    window->Show();
+    if (window->is_modal_ && window->modal_owner_view_id_ >= 0) {
+        MultiViewDesktop *owner = FindByViewId(window->modal_owner_view_id_);
+        if (owner != nullptr && owner->native_window != nullptr) {
+            UpdateModalStateLayer(owner->native_window);
         }
-        FlutterDesktopViewControllerForceRedraw(view_controller);
+    }
+}
+
+int64_t MultiViewDesktop::CreatePopupWindow(const flutter::EncodableMap &args) {
+    if (!engine_) {
+        return -1;
     }
 
-    if (channel_) {
-        channel_->InvokeMethod(
-                "onEvent",
-                std::make_unique<flutter::EncodableValue>(flutter::EncodableMap{
-                        {flutter::EncodableValue("eventName"),
-                                flutter::EncodableValue("viewCreated")},
-                        {flutter::EncodableValue("viewId"),
-                                flutter::EncodableValue(flutter_view_id)},
-                        {flutter::EncodableValue("token"), flutter::EncodableValue(token)},
-                }));
+    const int token = static_cast<int>(Int64FromMap(args, "token"));
+    const int64_t parent_id = Int64FromMap(args, "parentId");
+    const double width = DoubleFromMap(args, "width", 240);
+    const double height = DoubleFromMap(args, "height", 320);
+
+    MultiViewDesktop *parent = FindByViewId(parent_id);
+    if (parent == nullptr) {
+        return -1;
     }
+
+    parent->RefreshPixelRatio();
+    const double scale =
+            parent->pixel_ratio_ > 0 ? parent->pixel_ratio_ : DefaultMonitorScaleFactor();
+    const int client_width = static_cast<int>(width * scale);
+    const int client_height = static_cast<int>(height * scale);
+
+    HWND parent_hwnd = parent->native_window;
+    HWND host_hwnd =
+            CreatePopupHostWindow(client_width, client_height, parent_hwnd);
+    if (!host_hwnd) {
+        return -1;
+    }
+
+    FlutterDesktopViewControllerProperties properties = {
+            client_width,
+            client_height,
+    };
+    FlutterDesktopViewControllerRef view_controller =
+            FlutterDesktopEngineCreateViewController(engine_, &properties);
+    if (!view_controller) {
+        DestroyWindow(host_hwnd);
+        return -1;
+    }
+
+    const int64_t flutter_view_id =
+            static_cast<int64_t>(FlutterDesktopViewControllerGetViewId(view_controller));
+    FlutterDesktopViewRef view = FlutterDesktopViewControllerGetView(view_controller);
+    HWND flutter_hwnd = FlutterDesktopViewGetHWND(view);
+    SetParent(flutter_hwnd, host_hwnd);
+
+    RegisterWindow(host_hwnd, flutter_view_id, view_controller);
+    auto *window = FindByViewId(flutter_view_id);
+    if (window) {
+        window->pixel_ratio_ = scale;
+        window->is_popup_ = true;
+        window->is_pre_confirm_ = true;
+        window->is_confirm_close_ = true;
+        window->SetAsFrameless();
+        window->SetHasShadow({
+                {flutter::EncodableValue("hasShadow"), flutter::EncodableValue(true)}});
+        window->SetBackgroundColor({
+                {flutter::EncodableValue("backgroundColorA"), flutter::EncodableValue(0)},
+                {flutter::EncodableValue("backgroundColorR"), flutter::EncodableValue(0)},
+                {flutter::EncodableValue("backgroundColorG"), flutter::EncodableValue(0)},
+                {flutter::EncodableValue("backgroundColorB"), flutter::EncodableValue(0)}});
+        flutter::EncodableMap skip_args = {
+                {flutter::EncodableValue("isSkipTaskbar"), flutter::EncodableValue(true)}};
+        window->SetSkipTaskbar(skip_args);
+    }
+    ResizeFlutterContent(window);
+    if (window) {
+        window->RefreshPixelRatio();
+    }
+    FlutterDesktopViewControllerForceRedraw(view_controller);
+
+    EmitEvent("viewCreated", flutter_view_id, token);
+    return flutter_view_id;
 }
 
 HWND MultiViewDesktop::GetMainWindow() {
     return native_window;
+}
+
+void MultiViewDesktop::RefreshPixelRatio() {
+    HWND hwnd = GetMainWindow();
+    if (!hwnd) {
+        return;
+    }
+    pixel_ratio_ = MvdWindowsScaleForHwnd(hwnd);
 }
 
 void MultiViewDesktop::ForceRefresh() {
@@ -1032,15 +1218,17 @@ bool MultiViewDesktop::IsFocused() {
 
 void MultiViewDesktop::Show() {
     HWND hWnd = GetMainWindow();
-    DWORD gwlStyle = GetWindowLong(hWnd, GWL_STYLE);
-    gwlStyle = gwlStyle | WS_VISIBLE;
-    if ((gwlStyle & WS_VISIBLE) == 0) {
-        SetWindowLong(hWnd, GWL_STYLE, gwlStyle);
-        ::SetWindowPos(hWnd, HWND_TOP, 0, 0, 0, 0, SWP_NOSIZE | SWP_NOMOVE);
+    if (!hWnd) {
+        return;
     }
 
-    ShowWindowAsync(GetMainWindow(), SW_SHOW);
-    SetForegroundWindow(GetMainWindow());
+    if (is_popup_) {
+        ShowWindow(hWnd, SW_SHOWNOACTIVATE);
+        return;
+    }
+
+    ShowWindow(hWnd, SW_SHOWNORMAL);
+    SetForegroundWindow(hWnd);
     if (is_skip_taskbar_) {
         ApplyTaskbarTabVisibility(hWnd, true);
     }
@@ -1132,32 +1320,7 @@ void MultiViewDesktop::Restore() {
 }
 
 double MultiViewDesktop::GetDpiForHwnd(HWND hWnd) {
-    auto monitor = MonitorFromWindow(hWnd, MONITOR_DEFAULTTONEAREST);
-    UINT newDpiX = 96;  // Default values
-    UINT newDpiY = 96;
-
-    // Dynamically load shcore.dll and get the GetDpiForMonitor function address
-    // We need to do this to ensure Windows 7 support
-    HMODULE shcore = LoadLibrary(TEXT("shcore.dll"));
-    if (shcore) {
-        typedef HRESULT (*GetDpiForMonitor)(HMONITOR, int, UINT *, UINT *);
-
-        GetDpiForMonitor GetDpiForMonitorFunc =
-                (GetDpiForMonitor) GetProcAddress(shcore, "GetDpiForMonitor");
-
-        if (GetDpiForMonitorFunc) {
-            // Use the loaded function if available
-            const int MDT_EFFECTIVE_DPI = 0;
-            if (FAILED(GetDpiForMonitorFunc(monitor, MDT_EFFECTIVE_DPI, &newDpiX,
-                                            &newDpiY))) {
-                // If it fails, set the default values again
-                newDpiX = 96;
-                newDpiY = 96;
-            }
-        }
-        FreeLibrary(shcore);
-    }
-    return ((double) newDpiX);
+    return MvdWindowsScaleForHwnd(hWnd) * 96.0;
 }
 
 bool MultiViewDesktop::IsFullScreen() {
@@ -1172,13 +1335,6 @@ void MultiViewDesktop::SetFullScreen(const flutter::EncodableMap &args) {
             std::get<bool>(args.at(flutter::EncodableValue("isFullScreen")));
 
     HWND mainWindow = GetMainWindow();
-
-    // Previously inspired by how Chromium does this
-    // https://src.chromium.org/viewvc/chrome/trunk/src/ui/views/win/fullscreen_handler.cc?revision=247204&view=markup
-    // Instead, we use a modified implementation of how the media_kit package
-    // implements this (we got permission from the author, I believe)
-    // https://github.com/alexmercerind/media_kit/blob/1226bcff36eab27cb17d60c33e9c15ca489c1f06/media_kit_video/windows/utils.cc
-
     // Save current window state if not already fullscreen.
     if (!g_is_window_fullscreen) {
         // Save current window information.
@@ -1243,66 +1399,127 @@ void MultiViewDesktop::SetAspectRatio(const flutter::EncodableMap &args) {
             std::get<double>(args.at(flutter::EncodableValue("aspectRatio")));
 }
 
-void MultiViewDesktop::SetBackgroundColor(const flutter::EncodableMap &args) {
-    int backgroundColorA =
-            std::get<int>(args.at(flutter::EncodableValue("backgroundColorA")));
-    int backgroundColorR =
-            std::get<int>(args.at(flutter::EncodableValue("backgroundColorR")));
-    int backgroundColorG =
-            std::get<int>(args.at(flutter::EncodableValue("backgroundColorG")));
-    int backgroundColorB =
-            std::get<int>(args.at(flutter::EncodableValue("backgroundColorB")));
-
-    bool isTransparent = backgroundColorA == 0 && backgroundColorR == 0 &&
-                         backgroundColorG == 0 && backgroundColorB == 0;
-
+void MultiViewDesktop::ApplyWindowComposition() {
     HWND hWnd = GetMainWindow();
-    const HINSTANCE hModule = LoadLibrary(TEXT("user32.dll"));
-    if (hModule) {
-        typedef enum _ACCENT_STATE {
-            ACCENT_DISABLED = 0,
-            ACCENT_ENABLE_GRADIENT = 1,
-            ACCENT_ENABLE_TRANSPARENTGRADIENT = 2,
-            ACCENT_ENABLE_BLURBEHIND = 3,
-            ACCENT_ENABLE_ACRYLICBLURBEHIND = 4,
-            ACCENT_ENABLE_HOSTBACKDROP = 5,
-            ACCENT_INVALID_STATE = 6
-        } ACCENT_STATE;
-        struct ACCENTPOLICY {
-            int nAccentState;
-            int nFlags;
-            int nColor;
-            int nAnimationId;
-        };
-        struct WINCOMPATTRDATA {
-            int nAttribute;
-            PVOID pData;
-            ULONG ulDataSize;
-        };
-        typedef BOOL(WINAPI
-        *pSetWindowCompositionAttribute)(HWND,
-                WINCOMPATTRDATA *);
-        const pSetWindowCompositionAttribute SetWindowCompositionAttribute =
-                (pSetWindowCompositionAttribute) GetProcAddress(
-                        hModule, "SetWindowCompositionAttribute");
-        if (SetWindowCompositionAttribute) {
-            int32_t accent_state = isTransparent ? ACCENT_ENABLE_TRANSPARENTGRADIENT
-                                                 : ACCENT_ENABLE_GRADIENT;
-            ACCENTPOLICY policy = {
-                    accent_state, 2,
-                    ((backgroundColorA << 24) + (backgroundColorB << 16) +
-                     (backgroundColorG << 8) + (backgroundColorR)),
-                    0};
-            WINCOMPATTRDATA data = {19, &policy, sizeof(policy)};
-            SetWindowCompositionAttribute(hWnd, &data);
-        }
-        FreeLibrary(hModule);
+    if (!hWnd) {
+        return;
     }
+
+    const bool isTransparent = background_a_ == 0 && background_r_ == 0 &&
+                               background_g_ == 0 && background_b_ == 0;
+    const bool has_caption =
+            (GetWindowLong(hWnd, GWL_STYLE) & WS_CAPTION) != 0;
+    const bool use_accent =
+            is_popup_ || !has_caption || title_bar_style_ == "hidden";
+
+    const HINSTANCE hModule = LoadLibrary(TEXT("user32.dll"));
+    if (!hModule) {
+        return;
+    }
+    typedef enum _ACCENT_STATE {
+        ACCENT_DISABLED = 0,
+        ACCENT_ENABLE_GRADIENT = 1,
+        ACCENT_ENABLE_TRANSPARENTGRADIENT = 2,
+        ACCENT_ENABLE_BLURBEHIND = 3,
+        ACCENT_ENABLE_ACRYLICBLURBEHIND = 4,
+        ACCENT_ENABLE_HOSTBACKDROP = 5,
+        ACCENT_INVALID_STATE = 6
+    } ACCENT_STATE;
+    struct ACCENTPOLICY {
+        int nAccentState;
+        int nFlags;
+        int nColor;
+        int nAnimationId;
+    };
+    struct WINCOMPATTRDATA {
+        int nAttribute;
+        PVOID pData;
+        ULONG ulDataSize;
+    };
+    typedef BOOL(WINAPI *pSetWindowCompositionAttribute)(HWND,
+                                                         WINCOMPATTRDATA *);
+    const pSetWindowCompositionAttribute SetWindowCompositionAttribute =
+            (pSetWindowCompositionAttribute) GetProcAddress(
+                    hModule, "SetWindowCompositionAttribute");
+    if (SetWindowCompositionAttribute) {
+        int32_t accent_state = ACCENT_DISABLED;
+        int32_t accent_color = 0;
+        if (use_accent) {
+            accent_state = isTransparent ? ACCENT_ENABLE_TRANSPARENTGRADIENT
+                                         : ACCENT_ENABLE_GRADIENT;
+            accent_color = ((background_a_ << 24) + (background_b_ << 16) +
+                            (background_g_ << 8) + background_r_);
+        }
+        ACCENTPOLICY policy = {accent_state, 2, accent_color, 0};
+        WINCOMPATTRDATA data = {19, &policy, sizeof(policy)};
+        SetWindowCompositionAttribute(hWnd, &data);
+    }
+    FreeLibrary(hModule);
+}
+
+void MultiViewDesktop::SetBrightness(const flutter::EncodableMap &args) {
+    HWND hWnd = GetMainWindow();
+    if (!hWnd) {
+        return;
+    }
+
+    const std::string brightness =
+            std::get<std::string>(args.at(flutter::EncodableValue("brightness")));
+    const BOOL enable_dark_mode = brightness == "dark" ? TRUE : FALSE;
+    DwmSetWindowAttribute(hWnd, DWMWA_USE_IMMERSIVE_DARK_MODE,
+                          &enable_dark_mode, sizeof(enable_dark_mode));
+}
+
+void MultiViewDesktop::ApplyPopupShadowAndColor() {
+    HWND hwnd = GetMainWindow();
+    if (!hwnd || !is_popup_) {
+        return;
+    }
+
+    const DWORD corner = has_shadow_ ? DWMWCP_ROUND : DWMWCP_DONOTROUND;
+    DwmSetWindowAttribute(hwnd, DWMWA_WINDOW_CORNER_PREFERENCE, &corner,
+                          sizeof(corner));
+
+    MARGINS margins = has_shadow_ ? MARGINS{0, 0, 0, 1} : MARGINS{0, 0, 0, 0};
+    DwmExtendFrameIntoClientArea(hwnd, &margins);
+
+    const bool clear = background_a_ == 0 && background_r_ == 0 &&
+                       background_g_ == 0 && background_b_ == 0;
+    const COLORREF chrome = clear ? DWMWA_COLOR_NONE
+                                  : RGB(background_r_, background_g_,
+                                        background_b_);
+    DwmSetWindowAttribute(hwnd, DWMWA_BORDER_COLOR, &chrome, sizeof(chrome));
+    DwmSetWindowAttribute(hwnd, DWMWA_CAPTION_COLOR, &chrome, sizeof(chrome));
+    ApplyWindowComposition();
+}
+
+void MultiViewDesktop::SetBackgroundColor(const flutter::EncodableMap &args) {
+    auto channel = [&args](const char *key) -> int {
+        const int64_t value = Int64FromMap(args, key);
+        if (value < 0) {
+            return 0;
+        }
+        if (value > 255) {
+            return 255;
+        }
+        return static_cast<int>(value);
+    };
+    background_a_ = channel("backgroundColorA");
+    background_r_ = channel("backgroundColorR");
+    background_g_ = channel("backgroundColorG");
+    background_b_ = channel("backgroundColorB");
+
+    if (is_popup_) {
+        ApplyPopupShadowAndColor();
+        return;
+    }
+    ApplyWindowComposition();
 }
 
 flutter::EncodableMap MultiViewDesktop::GetBounds(
         const flutter::EncodableMap &args) {
     HWND hwnd = GetMainWindow();
+    RefreshPixelRatio();
     const double device_pixel_ratio =
             pixel_ratio_ > 0 ? pixel_ratio_ : GetDpiForHwnd(hwnd) / 96.0;
 
@@ -1323,6 +1540,7 @@ flutter::EncodableMap MultiViewDesktop::GetBounds(
 
 void MultiViewDesktop::SetSize(const flutter::EncodableMap &args) {
     HWND hwnd = GetMainWindow();
+    RefreshPixelRatio();
     const double width = DoubleFromMap(args, "width", 0);
     const double height = DoubleFromMap(args, "height", 0);
     RECT rect{};
@@ -1339,11 +1557,32 @@ void MultiViewDesktop::SetPosition(const flutter::EncodableMap &args) {
     const double y = DoubleFromMap(args, "y", 0);
     RECT rect{};
     GetWindowRect(hwnd, &rect);
+    const double current_scale = pixel_ratio_ > 0 ? pixel_ratio_ : 1.0;
+    const double width = (rect.right - rect.left) / current_scale;
+    const double height = (rect.bottom - rect.top) / current_scale;
+    pixel_ratio_ = MvdWindowsScaleForLogicalRect(x, y, width, height);
     const int left = static_cast<int>(x * pixel_ratio_);
     const int top = static_cast<int>(y * pixel_ratio_);
     SetWindowPos(hwnd, nullptr, left, top, rect.right - rect.left,
                  rect.bottom - rect.top,
                  SWP_NOZORDER | SWP_NOOWNERZORDER);
+    RefreshPixelRatio();
+}
+
+void MultiViewDesktop::SetPopupBounds(const flutter::EncodableMap &args) {
+    HWND hwnd = GetMainWindow();
+    const double x = DoubleFromMap(args, "x", 0);
+    const double y = DoubleFromMap(args, "y", 0);
+    const double width = DoubleFromMap(args, "width", 0);
+    const double height = DoubleFromMap(args, "height", 0);
+    pixel_ratio_ = MvdWindowsScaleForLogicalRect(x, y, width, height);
+    const int left = static_cast<int>(x * pixel_ratio_);
+    const int top = static_cast<int>(y * pixel_ratio_);
+    const int w = static_cast<int>(width * pixel_ratio_);
+    const int h = static_cast<int>(height * pixel_ratio_);
+    SetWindowPos(hwnd, nullptr, left, top, w, h,
+                 SWP_NOZORDER | SWP_NOOWNERZORDER | SWP_NOACTIVATE);
+    RefreshPixelRatio();
 }
 
 void MultiViewDesktop::Center() {
@@ -1533,14 +1772,15 @@ bool MultiViewDesktop::HasShadow() {
 }
 
 void MultiViewDesktop::SetHasShadow(const flutter::EncodableMap &args) {
+    has_shadow_ = std::get<bool>(args.at(flutter::EncodableValue("hasShadow")));
+    if (is_popup_) {
+        ApplyPopupShadowAndColor();
+        return;
+    }
     if (is_frameless_) {
-        has_shadow_ = std::get<bool>(args.at(flutter::EncodableValue("hasShadow")));
-
         HWND hWnd = GetMainWindow();
-
         MARGINS margins[2]{{0, 0, 0, 0},
                            {0, 0, 1, 0}};
-
         DwmExtendFrameIntoClientArea(hWnd, &margins[has_shadow_]);
     }
 }
@@ -1552,27 +1792,20 @@ double MultiViewDesktop::GetOpacity() {
 void MultiViewDesktop::SetOpacity(const flutter::EncodableMap &args) {
     opacity_ = std::get<double>(args.at(flutter::EncodableValue("opacity")));
     HWND hWnd = GetMainWindow();
-    long gwlExStyle = GetWindowLong(hWnd, GWL_EXSTYLE);
-    SetWindowLong(hWnd, GWL_EXSTYLE, gwlExStyle | WS_EX_LAYERED);
-    SetLayeredWindowAttributes(hWnd, 0, static_cast<int8_t>(255 * opacity_),
-                               0x02);
-}
-
-void MultiViewDesktop::SetBrightness(const flutter::EncodableMap &args) {
-    DWORD light_mode;
-    DWORD light_mode_size = sizeof(light_mode);
-    LSTATUS result =
-            RegGetValue(HKEY_CURRENT_USER, kGetPreferredBrightnessRegKey,
-                        kGetPreferredBrightnessRegValue, RRF_RT_REG_DWORD, nullptr,
-                        &light_mode, &light_mode_size);
-
-    if (result == ERROR_SUCCESS) {
-        std::string brightness =
-                std::get<std::string>(args.at(flutter::EncodableValue("brightness")));
-        HWND hWnd = GetMainWindow();
-        BOOL enable_dark_mode = light_mode == 0 && brightness == "dark";
-        DwmSetWindowAttribute(hWnd, DWMWA_USE_IMMERSIVE_DARK_MODE,
-                              &enable_dark_mode, sizeof(enable_dark_mode));
+    if (!hWnd) {
+        return;
+    }
+    LONG ex_style = GetWindowLong(hWnd, GWL_EXSTYLE);
+    if (opacity_ < 0.999) {
+        SetWindowLong(hWnd, GWL_EXSTYLE, ex_style | WS_EX_LAYERED);
+        SetLayeredWindowAttributes(hWnd, 0, static_cast<BYTE>(255 * opacity_),
+                                   LWA_ALPHA);
+        return;
+    }
+    SetLayeredWindowAttributes(hWnd, 0, 255, LWA_ALPHA);
+    SetWindowLong(hWnd, GWL_EXSTYLE, ex_style & ~WS_EX_LAYERED);
+    if (is_popup_) {
+        ApplyPopupShadowAndColor();
     }
 }
 
@@ -1582,11 +1815,14 @@ void MultiViewDesktop::SetIgnoreMouseEvents(
 
     HWND hwnd = GetMainWindow();
     LONG ex_style = ::GetWindowLong(hwnd, GWL_EXSTYLE);
-    if (ignore)
+    if (ignore) {
         ex_style |= (WS_EX_TRANSPARENT | WS_EX_LAYERED);
-    else
-        ex_style &= ~(WS_EX_TRANSPARENT | WS_EX_LAYERED);
-
+    } else {
+        ex_style &= ~WS_EX_TRANSPARENT;
+        if (opacity_ >= 0.999) {
+            ex_style &= ~WS_EX_LAYERED;
+        }
+    }
     ::SetWindowLong(hwnd, GWL_EXSTYLE, ex_style);
 }
 

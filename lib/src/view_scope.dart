@@ -4,7 +4,7 @@ import 'package:flutter/widgets.dart';
 /// Provides the numeric OS-view identifier for the current window.
 ///
 /// Automatically injected by `runMultiApp` around every view in the
-/// `ViewCollection`.  Read it with `MultiViewDesktop._getCurrentId` or
+/// `ViewCollection`. Read it with `MultiViewDesktop._getCurrentId` or
 /// directly:
 ///
 /// ```dart
@@ -43,4 +43,31 @@ class ViewScope extends InheritedWidget {
 
   @override
   bool updateShouldNotify(ViewScope oldWidget) => viewId != oldWidget.viewId;
+}
+
+/// Real view id of an internal view (popup). [ViewScope] still resolves to the parent window.
+@internal
+class InternalViewScope extends InheritedWidget {
+  const InternalViewScope({
+    super.key,
+    required this.viewId,
+    required super.child,
+  });
+
+  final int viewId;
+
+  @internal
+  static InternalViewScope? maybeOf(BuildContext context) {
+    return context.dependOnInheritedWidgetOfExactType<InternalViewScope>();
+  }
+
+  @internal
+  static InternalViewScope of(BuildContext context) {
+    final scope = maybeOf(context);
+    assert(scope != null, 'No InternalViewScope found in context.');
+    return scope!;
+  }
+
+  @override
+  bool updateShouldNotify(InternalViewScope oldWidget) => viewId != oldWidget.viewId;
 }

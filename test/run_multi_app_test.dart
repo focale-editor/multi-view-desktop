@@ -3,10 +3,10 @@ import 'package:multiview_desktop/multiview_desktop.dart';
 
 void main() {
   group('MultiAppConfig', () {
-    test('defaultParams uses softCascade close mode and dynamic anchor', () {
+    test('defaultParams uses softCascade close mode and static default anchor', () {
       final params = MultiPlatformParams.defaultParams();
 
-      expect(params.enableDynamicAnchor, isTrue);
+      expect(params.enableDynamicAnchor, isFalse);
       expect(params.closeMode, CloseMode.softCascade);
       expect(params.menuItems, isEmpty);
     });
@@ -29,10 +29,19 @@ void main() {
           enableDynamicAnchor: false,
           closeMode: CloseMode.destroy,
         ),
+        fileLogParams: const LogParams(enable: true, sizeKb: 512),
       );
 
       expect(config.generalParams.enableDynamicAnchor, isFalse);
       expect(config.generalParams.closeMode, CloseMode.destroy);
+      expect(config.logParams.enable, isTrue);
+      expect(config.logParams.sizeKb, 512);
+    });
+
+    test('LogParams defaults to disabled', () {
+      final config = MultiAppConfig();
+      expect(config.logParams.enable, isFalse);
+      expect(config.logParams.sizeKb, 1024);
     });
 
     test('MacosPlatformParams defaults', () {
