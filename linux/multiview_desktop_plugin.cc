@@ -274,7 +274,21 @@ static gboolean on_delete(GtkWidget* widget, GdkEvent*, gpointer data) {
 }
 
 static gboolean on_focus_in(GtkWidget*, GdkEvent*, gpointer data) {
-  emit_event("focus", pointer_to_view_id(data));
+  const int64_t view_id = pointer_to_view_id(data);
+  // A window blocked by a modal dialog can still become the active toplevel,
+  // for example when the user clicks it. Keyboard input would then reach the
+  // blocked view instead of the dialog, so hand activation back to the dialog
+  // once GTK has finished processing this focus change.
+  const int64_t modal_target = MvdLinuxWindow::GetActiveModalFocusTarget(view_id);
+  if (modal_target >= 0 && modal_target != view_id) {
+    g_idle_add(
+        [](gpointer target) -> gboolean {
+          MvdLinuxWindow::FocusModalTarget(GPOINTER_TO_SIZE(target) - 1);
+          return G_SOURCE_REMOVE;
+        },
+        GSIZE_TO_POINTER(static_cast<gsize>(modal_target) + 1));
+  }
+  emit_event("focus", view_id);
   return FALSE;
 }
 
