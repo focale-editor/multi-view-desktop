@@ -1,6 +1,8 @@
 import 'dart:io';
 
+import 'package:flutter/material.dart';
 import 'package:multiview_desktop/multiview_desktop.dart';
+
 // ignore: depend_on_referenced_packages
 import 'package:meta/meta.dart';
 import 'package:multiview_desktop/src/ffi/ffi_bridge.dart';
@@ -31,34 +33,34 @@ class ViewOptionsApplier {
     if (opts.alignment != null) {
       _ffi.setAlignment(viewId, alignment: opts.alignment!);
     }
-    if (opts.backgroundColor != null) {
-      _ffi.setBackgroundColor(viewId, color: opts.backgroundColor!);
-    }
+
+    final defaultColor = opts.backgroundColor ?? Colors.white;
+    _ffi.setBackgroundColor(viewId, color: defaultColor);
+
     if (opts.minimumSize != null) {
       _ffi.setMinSize(viewId, size: opts.minimumSize!);
     }
     if (opts.maximumSize != null) {
       _ffi.setMaxSize(viewId, size: opts.maximumSize!);
     }
+    if (opts.maximize == true) {
+      _ffi.maximize(viewId);
+    }
     if (opts.title != null) {
       _ffi.setTitle(viewId, title: opts.title!);
     }
-    // _ffi.hide(viewId);
-    // if (opts.titleBarStyle != null) {
-    //   _ffi.setTitleBarStyle(
-    //     viewId,
-    //     style: opts.titleBarStyle!,
-    //     closeVisibility: opts.windowButtonVisibility!,
-    //     maximizeVisibility: opts.windowButtonVisibility!,
-    //     minimizeVisibility: opts.windowButtonVisibility!,
-    //   );
-    // }
+    if (opts.titleBarStyle != null) {
+      _ffi.setTitleBarStyle(
+        viewId,
+        style: opts.titleBarStyle!,
+        closeVisibility: opts.windowButtonVisibility!,
+        maximizeVisibility: opts.windowButtonVisibility!,
+        minimizeVisibility: opts.windowButtonVisibility!,
+      );
+    }
     if (opts.alwaysOnTop != null) {
       _ffi.setAlwaysOnTop(viewId, isAlwaysOnTop: opts.alwaysOnTop!);
     }
-    // if (opts.fullScreen != null) {
-    //   _ffi.setFullScreen(viewId, isFullScreen: opts.fullScreen!);
-    // }
   }
 
   void applyDialog(int viewId, DialogOptions opts) {
@@ -71,9 +73,10 @@ class ViewOptionsApplier {
     if (!Platform.isWindows && opts.size != null) {
       _ffi.setSize(viewId, size: opts.size!);
     }
-    if (opts.backgroundColor != null) {
-      _ffi.setBackgroundColor(viewId, color: opts.backgroundColor!);
-    }
+
+    final defaultColor = opts.backgroundColor ?? Colors.white;
+    _ffi.setBackgroundColor(viewId, color: defaultColor);
+
     if (opts.minimumSize != null) {
       _ffi.setMinSize(viewId, size: opts.minimumSize!);
     }
@@ -82,6 +85,9 @@ class ViewOptionsApplier {
     }
     if (opts.isResizable != null) {
       _ffi.setResizable(viewId, opts.isResizable!);
+    }
+    if (opts.maximize == true) {
+      _ffi.maximize(viewId);
     }
     if (opts.title != null) {
       _ffi.setTitle(viewId, title: opts.title!);

@@ -84,6 +84,7 @@ class ViewCloseService {
 
     await closeSubtreeByMode(viewId, closeMode);
   }
+
   @visibleForTesting
   ViewOwnerBase? ownerFor(int viewId) {
     if (registry.isPopup(viewId)) return lifecycle.popupOwner;
@@ -134,10 +135,7 @@ class ViewCloseService {
 
   void cancelCascade(int viewId) {
     final parents = [...registry.parentWindowChain(viewId), ...registry.parentDialogChain(viewId), viewId];
-    MvdLog.instance.info('close', 'cascade abort', {
-      'realId': viewId,
-      'chain': parents.join(','),
-    });
+    MvdLog.instance.info('close', 'cascade abort', {'realId': viewId, 'chain': parents.join(',')});
     for (final parent in parents) {
       ffi.setPreConfirmClose(parent, false);
       cascadeCloseService.abort(parent);
@@ -147,10 +145,7 @@ class ViewCloseService {
   /// Release waits for [rootId] and its current descendants only.
   /// Does not touch pending closes of sibling / unrelated roots.
   void _abortSubtreeWaits(int rootId) {
-    cascadeCloseService.abortIds([
-      rootId,
-      ...registry.descendantWindowIdsDeepestFirst(rootId),
-    ]);
+    cascadeCloseService.abortIds([rootId, ...registry.descendantWindowIdsDeepestFirst(rootId)]);
   }
 
   /// Drop stale descendant waits for this tree before force/destroy cycles.
@@ -394,12 +389,18 @@ class ViewCloseService {
     ffi.softCloseWindow(viewId);
   }
 
-  void _macosHideInsteadOfClose(int viewId) {
+  void _macosHideInsteadOfClose(int viewId) async {
     destroyPopupsByParent(viewId);
     removeAllDialogsByParent(viewId);
-    lifecycle.proxies.state.hide(viewId);
+
+    if (lifecycle.proxies.state.isFullScreen(viewId)) {
+      ffi.hideRequest(viewId);
+      lifecycle.proxies.state.setFullScreen(viewId, false);
+    } else {
+      ffi.hide(viewId);
+    }
+
     ffi.setPreConfirmClose(viewId, false);
-    cascadeCloseService.completeWindow(viewId);
   }
 
   int? get _anchorId => anchorViewId;

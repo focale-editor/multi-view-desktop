@@ -214,6 +214,7 @@ class ModelessDialogOwner extends ViewOwnerBase {
       alwaysOnTop: base.alwaysOnTop,
       showOnInit: base.showOnInit,
       shellOverrides: base.shellOverrides,
+      maximize: base.maximize,
     );
   }
 }
@@ -252,6 +253,7 @@ class ModalDialogOwner extends ViewOwnerBase {
       alwaysOnTop: base.alwaysOnTop,
       showOnInit: base.showOnInit,
       shellOverrides: base.shellOverrides,
+      maximize: base.maximize
     );
   }
 }

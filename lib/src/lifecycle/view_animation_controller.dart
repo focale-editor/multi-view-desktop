@@ -37,8 +37,8 @@ class ViewAnimationController {
 
   ViewManagerProxies? _proxies;
 
-  final Map<int, ViewAnimationOverride> _pendingForceOverrides = {};
-  final Map<int, ViewAnimationOverride> _pendingSoftOverrides = {};
+  final Map<int, Set<ViewAnimationOverride>> _pendingForceOverrides = {};
+  final Map<int, Set<ViewAnimationOverride>> _pendingSoftOverrides = {};
   final Map<int, int> _animGeneration = {};
 
   void bindProxies(ViewManagerProxies proxies) => this.proxies = proxies;
@@ -69,7 +69,11 @@ class ViewAnimationController {
   void stageForceOverride(int viewId, ViewAnimationType type, AnimationSettings? settings) {
     if (settings == null || settings.isEmpty) return;
     MvdLog.instance.info('animation', 'stageForceOverride', {'realId': viewId, 'type': type.name});
-    _pendingForceOverrides[viewId] = ViewAnimationOverride(type: type, settings: settings);
+    final next = ViewAnimationOverride(type: type, settings: settings);
+    final pending = _pendingForceOverrides.putIfAbsent(viewId, () => {});
+    pending
+      ..remove(next)
+      ..add(next);
   }
 
   /// Stages a one-shot soft override. Applied only when [type] is enabled in config.
@@ -77,7 +81,11 @@ class ViewAnimationController {
     if (settings == null || settings.isEmpty) return;
     if (!_isStagingAllowed(type)) return;
     MvdLog.instance.info('animation', 'stageSoftOverride', {'realId': viewId, 'type': type.name});
-    _pendingSoftOverrides[viewId] = ViewAnimationOverride(type: type, settings: settings);
+    final next = ViewAnimationOverride(type: type, settings: settings);
+    final pending = _pendingSoftOverrides.putIfAbsent(viewId, () => {});
+    pending
+      ..remove(next)
+      ..add(next);
   }
 
   bool _isStagingAllowed(ViewAnimationType type) {
@@ -107,16 +115,16 @@ class ViewAnimationController {
       return null;
     }
     final pending = _pendingForceOverrides[viewId];
-    if (pending == null || pending.type != type) return null;
+    if (pending == null || !pending.any((e) => e.type == type)) return null;
     _pendingForceOverrides.remove(viewId);
-    return pending.settings;
+    return pending.firstWhere((e) => e.type == type).settings;
   }
 
   AnimationSettings? _takeSoftOverride(int viewId, ViewAnimationType type) {
     final pending = _pendingSoftOverrides[viewId];
-    if (pending == null || pending.type != type) return null;
+    if (pending == null || !pending.any((e) => e.type == type)) return null;
     _pendingSoftOverrides.remove(viewId);
-    return pending.settings;
+    return pending.firstWhere((e) => e.type == type).settings;
   }
 
   /// Open fade `0 -> 1`, or [show] only when open fade is disabled in [policy].

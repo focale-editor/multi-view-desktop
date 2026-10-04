@@ -11,7 +11,11 @@ public class MultiviewDesktopPlugin: NSObject, FlutterPlugin {
         let impl = MultiviewDesktopImpl.shared
         impl.engine = engine
         impl.mainWindowRef = window
+        // visibleAtLaunch is applied after awakeFromNib returns. Hide again then.
         window.orderOut(nil)
+        DispatchQueue.main.async { [weak window] in
+            window?.orderOut(nil)
+        }
         window.backgroundColor = .clear
         window.titleVisibility = .hidden
         window.standardWindowButton(.closeButton)?.isHidden = true

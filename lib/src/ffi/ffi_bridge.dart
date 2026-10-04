@@ -165,6 +165,7 @@ abstract class FfiBridge implements Finalizable {
   late final _setAspectN = _lib!.lookupFunction<_VdN, _VdD>('mvd_set_aspect_ratio');
   late final _showN = _lib!.lookupFunction<_V1N, _V1D>('mvd_show');
   late final _hideN = _lib!.lookupFunction<_V1N, _V1D>('mvd_hide');
+  late final _hideRequestN = _lib!.lookupFunction<_V1N, _V1D>('mvd_hide_request');
   late final _isVisibleN = _lib!.lookupFunction<_I1N, _I1D>('mvd_is_visible');
   late final _isFocusedN = _lib!.lookupFunction<_I1N, _I1D>('mvd_is_focused');
   late final _isOnActiveSpaceN = _lib!.lookupFunction<_I1N, _I1D>('mvd_is_on_active_space');
@@ -589,6 +590,8 @@ abstract class FfiBridge implements Finalizable {
 
   void hide(int viewId) => _v(_hideN, viewId);
 
+  void hideRequest(int viewId) => _v(_hideRequestN, viewId);
+
   bool isVisible(int viewId) => _b(_isVisibleN, viewId, fallback: true);
 
   void blur(int viewId) => _v(_blurN, viewId);
@@ -745,13 +748,15 @@ abstract class FfiBridge implements Finalizable {
     setMinimizable(viewId, true);
     setMaximizable(viewId, true);
     setClosable(viewId, true);
-    setAlwaysOnTop(viewId, isAlwaysOnTop: config.globalWindowOptions.alwaysOnTop ?? false);
+    setAlwaysOnTop(viewId, isAlwaysOnTop: config.mainWindowOptions.alwaysOnTop ?? false);
     setOpacity(viewId, 1);
     setAspectRatio(viewId, 0);
     setIgnoreMouseEvents(viewId, false);
   }
 
   void setInitWindowParamsAfterShow(int viewId, MultiAppConfig config) {
+    final isFullScreen = config.globalWindowOptions.fullScreen ?? false;
+    setFullScreen(viewId, isFullScreen: isFullScreen && !Platform.isLinux);
     setTitleBarStyle(
       viewId,
       style: config.globalWindowOptions.titleBarStyle ?? TitleBarStyle.normal,
@@ -760,7 +765,7 @@ abstract class FfiBridge implements Finalizable {
       maximizeVisibility: config.globalWindowOptions.windowButtonVisibility ?? false,
     );
 
-    final defaultColor = config.globalWindowOptions.backgroundColor?? Colors.white;
+    final defaultColor = config.globalWindowOptions.backgroundColor ?? Colors.white;
     setBackgroundColor(viewId, color: defaultColor);
   }
 }
@@ -893,8 +898,7 @@ class RecordingFfiBridge extends FfiBridge {
   void setConfirmClose(int viewId, {required bool isConfirm}) => _rec('setConfirmClose:$viewId:$isConfirm');
 
   @override
-  void setPreventClose(int viewId, {required bool isPreventClose}) =>
-      _rec('setPreventClose:$viewId:$isPreventClose');
+  void setPreventClose(int viewId, {required bool isPreventClose}) => _rec('setPreventClose:$viewId:$isPreventClose');
 
   @override
   void completeModalDialogCreate(int viewId) => _rec('completeModalDialogCreate:$viewId');
@@ -909,8 +913,7 @@ class RecordingFfiBridge extends FfiBridge {
   void focus(int viewId) => _rec('focus:$viewId');
 
   @override
-  void maximize(int viewId, {bool vertically = false}) =>
-      _rec('maximize:$viewId:vertically=$vertically');
+  void maximize(int viewId, {bool vertically = false}) => _rec('maximize:$viewId:vertically=$vertically');
 
   @override
   void setOpacity(int viewId, double opacity) {
@@ -976,8 +979,7 @@ class RecordingFfiBridge extends FfiBridge {
   void setBackgroundColor(int viewId, {required Color color}) => _rec('setBackgroundColor:$viewId');
 
   @override
-  void setAlwaysOnTop(int viewId, {required bool isAlwaysOnTop}) =>
-      _rec('setAlwaysOnTop:$viewId:$isAlwaysOnTop');
+  void setAlwaysOnTop(int viewId, {required bool isAlwaysOnTop}) => _rec('setAlwaysOnTop:$viewId:$isAlwaysOnTop');
 
   @override
   void setFullScreen(int viewId, {required bool isFullScreen}) => _rec('setFullScreen:$viewId:$isFullScreen');

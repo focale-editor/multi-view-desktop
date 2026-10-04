@@ -8,6 +8,7 @@ sealed class BaseOptions {
     this.size,
     this.minimumSize,
     this.maximumSize,
+    this.maximize,
     this.backgroundColor,
     this.titleBarStyle,
     this.windowButtonVisibility,
@@ -26,6 +27,11 @@ sealed class BaseOptions {
 
   /// Maximum resizable size enforced by the OS window.
   final Size? maximumSize;
+
+  /// Whether the window starts in maximize mode.
+  ///
+  /// Note: full-screen has higher priority
+  final bool? maximize;
 
   /// Native window background color shown behind Flutter content.
   final Color? backgroundColor;
@@ -62,6 +68,7 @@ class WindowOptions extends BaseOptions {
     super.size,
     super.minimumSize,
     super.maximumSize,
+    super.maximize,
     this.alignment = Alignment.center,
     super.backgroundColor,
     super.titleBarStyle,
@@ -93,6 +100,7 @@ class DialogOptions extends BaseOptions {
     super.size,
     super.minimumSize,
     super.maximumSize,
+    super.maximize,
     this.isResizable,
     super.title,
     this.modal,

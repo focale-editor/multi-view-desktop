@@ -13,6 +13,7 @@
 - Optional file logger (`MultiAppConfig.fileLogParams` / `LogParams`)
 - `MultiViewDesktop.screen` for connected displays. Physical window bounds
   (`getPhysicalBounds` / `setPhysicalBounds`) for mixed-DPI layouts
+- `EnableDynamicAnchor` now is false by default.
 
 ## 1.2.2
 

@@ -41,6 +41,17 @@ Future<void> main() async {
 
   runMultiApp(
     home: (globalScopeContext, id) {
+      final mvd = MultiViewDesktop.fromId(id);
+      WidgetsBinding.instance.endOfFrame.then((_) => mvd.completeShow());
+      // force anim for init window for example
+      mvd.setForceAnimation(
+        ViewAnimationType.createWindow,
+        AnimationSettings(duration: Duration(seconds: 1), curve: Curves.linear, fps: 120),
+      );
+      // mvd.setForceAnimation(
+      //   ViewAnimationType.closeWindow,
+      //   AnimationSettings(duration: Duration(seconds: 1), curve: Curves.linear, fps: 120),
+      // );
       // E2eHost must sit *inside* MaterialApp (see MainWindowRoot) so overlay /
       // MaterialLocalizations work for primary-window RPC.
       return MainWindowRoot(e2eStore: e2eEnabledFromEnvironment() ? e2eStore : null);
@@ -52,7 +63,7 @@ Future<void> main() async {
     config: MultiAppConfig(
       fileLogParams: const LogParams(enable: true, sizeKb: 1024 * 10),
       generalParams: MultiPlatformParams(
-        animation: ViewAnimationConfig.all(modalFadeInOnOpen: true, modalFadeOutOnClose:  true),
+        animation: ViewAnimationConfig.all(modalFadeInOnOpen: true, modalFadeOutOnClose: true),
         enableDynamicAnchor: true,
         closeMode: CloseMode.softCascade,
         menuItems: [
@@ -67,7 +78,9 @@ Future<void> main() async {
         // Defaults match example dock behavior; cascade-exit E2E overrides via
         // MVD_E2E_CLOSE_APP_AFTER_LAST / MVD_E2E_SAVE_LAST_WINDOW.
         closeAppAfterLastWindowClosed: e2eCloseAppAfterLastWindowClosedFromEnvironment(),
+        // closeAppAfterLastWindowClosed: true,
         saveLastWindowToReopen: e2eSaveLastWindowToReopenFromEnvironment(),
+        // saveLastWindowToReopen: false,
         onTerminate: () async {
           // do something before terminate
           // for example soft close instead of destroy
@@ -114,11 +127,25 @@ Future<void> main() async {
       ),
       globalWindowOptions: WindowOptions(
         minimumSize: Size(1000, 700),
-        maximumSize: Size(1400, 900),
+        // maximumSize: Size(1400, 900),
         size: Size(1000, 700),
         alignment: Alignment.center,
         titleBarStyle: TitleBarStyle.normal,
         windowButtonVisibility: true,
+        showOnInit: true,
+        fullScreen: false,
+        title: 'Window N...',
+        backgroundColor: Colors.transparent,
+      ),
+      mainWindowOptions: WindowOptions(
+        minimumSize: Size(1000, 700),
+        size: Size(1200, 800),
+        alignment: Alignment.center,
+        titleBarStyle: TitleBarStyle.normal,
+        windowButtonVisibility: true,
+        maximize: false,
+        showOnInit: false,
+        fullScreen: false,
         title: 'Window 1',
         backgroundColor: Colors.transparent,
       ),

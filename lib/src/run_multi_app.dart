@@ -52,6 +52,9 @@ class MultiAppConfig {
   /// passed to `openWindow` override these fields.
   final WindowOptions globalWindowOptions;
 
+  /// Main window options.
+  final WindowOptions mainWindowOptions;
+
   /// Default `DialogOptions` merged into every `openDialog` call.
   final DialogOptions globalDialogOptions;
 
@@ -72,29 +75,40 @@ class MultiAppConfig {
     required this.generalParams,
     required this.macosParams,
     WindowOptions? globalWindowOptions,
+    WindowOptions? mainWindowOptions,
     DialogOptions? globalDialogOptions,
     this.observers = const [],
     this.logParams = const LogParams(),
-  }) : globalWindowOptions = globalWindowOptions ?? WindowOptions(),
+  }) : mainWindowOptions = mainWindowOptions ?? globalWindowOptions ?? WindowOptions(),
+       globalWindowOptions = globalWindowOptions ?? WindowOptions(),
        globalDialogOptions = globalDialogOptions ?? DialogOptions();
 
   /// Creates configuration for `runMultiApp`.
   ///
   /// `generalParams` controls anchor promotion and `CloseMode`.
+  ///
   /// `macosParams` controls macOS dock and last-window behavior.
-  /// `globalWindowOptions` apply to the main window at startup and merge into
+  ///
+  /// `mainWindowOptions` apply to main window.
+  ///
+  /// `globalWindowOptions` apply to the main window at startup if `mainWindowOptions` is `null`and merge into
   /// each `openWindow` call.
+  ///
   /// `globalDialogOptions` merge into each `openDialog` call.
+  ///
   /// `observers` receive passive lifecycle callbacks.
+  ///
   /// `logParams` writes package diagnostics to a cache-directory file.
   factory MultiAppConfig({
     MultiPlatformParams? generalParams,
     MacosPlatformParams? macosParams,
+    WindowOptions? mainWindowOptions,
     WindowOptions? globalWindowOptions,
     DialogOptions? globalDialogOptions,
     List<WindowObserver>? observers,
     LogParams fileLogParams = const LogParams(),
   }) => MultiAppConfig._(
+    mainWindowOptions: mainWindowOptions,
     globalWindowOptions: globalWindowOptions,
     globalDialogOptions: globalDialogOptions,
     generalParams: generalParams ?? MultiPlatformParams.defaultParams(),
@@ -218,13 +232,7 @@ Future<int> openWindow(
   WindowOptions? options,
   BuildContext? parentContext,
   AnimationSettings? animation,
-}) =>
-    MultiViewDesktop.addWindow(
-      childBuilder,
-      options: options,
-      parent: parentContext,
-      animation: animation,
-    );
+}) => MultiViewDesktop.addWindow(childBuilder, options: options, parent: parentContext, animation: animation);
 
 /// Opens a dialog window tied to `parentContext`.
 ///
@@ -255,13 +263,7 @@ Future<T?> openDialog<T>(
   required BuildContext parentContext,
   DialogOptions? options,
   AnimationSettings? animation,
-}) =>
-    MultiViewDesktop.addDialog<T>(
-      childBuilder,
-      parentContext: parentContext,
-      options: options,
-      animation: animation,
-    );
+}) => MultiViewDesktop.addDialog<T>(childBuilder, parentContext: parentContext, options: options, animation: animation);
 
 class DialogEntry<T> {
   final int id;
@@ -299,10 +301,9 @@ Future<DialogEntry<T?>> openDialogEntry<T>(
   required BuildContext parentContext,
   DialogOptions? options,
   AnimationSettings? animation,
-}) =>
-    MultiViewDesktop.addDialogEntry<T>(
-      childBuilder,
-      parentContext: parentContext,
-      options: options,
-      animation: animation,
-    );
+}) => MultiViewDesktop.addDialogEntry<T>(
+  childBuilder,
+  parentContext: parentContext,
+  options: options,
+  animation: animation,
+);

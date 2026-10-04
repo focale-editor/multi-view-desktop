@@ -477,7 +477,7 @@ class _HomePageState extends State<HomePage> with WindowListener {
                         // alwaysOnTop: true,
                         maximumSize: const Size(10000, 10000),
                       ),
-                      animation: AnimationSettings(duration: Duration(milliseconds: 250)),
+                      animation: AnimationSettings(duration: Duration(milliseconds: 1000)),
                     );
                   },
                 ),

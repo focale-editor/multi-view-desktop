@@ -847,7 +847,7 @@ class _ViewsManagerImpl implements ViewsManager {
   }
 
   int _createNextMainWindowAfterRestart(Widget Function(BuildContext) homeBuilder) {
-    final opts = config.globalWindowOptions;
+    final opts = config.mainWindowOptions;
 
     Offset? pos;
     final windowSize = Size(opts.size?.width ?? 800.0, opts.size?.height ?? 600.0);
@@ -883,7 +883,7 @@ class _ViewsManagerImpl implements ViewsManager {
 
   void _applyOptionsToInitialAnchor() {
     if (realAnchorId == null) return;
-    applyOptions(realAnchorId!, opts: config.globalWindowOptions);
+    applyOptions(realAnchorId!, opts: config.mainWindowOptions);
 
     final viewId = realAnchorId!;
     _lifecycle.windowOwner.trackUntilFirstFrame(viewId, parentId: null, isDialog: false);
@@ -897,10 +897,11 @@ class _ViewsManagerImpl implements ViewsManager {
       await binding.endOfFrame;
     }
     if (realAnchorId != viewId || !_registry.windows.containsKey(viewId)) return;
-    _proxies.state.show(viewId);
-    if (_hasInitView) {
-      _ffiBridge.setInitWindowParamsAfterShow(_initPlatformId, config);
-    }
+    _lifecycle.windowOwner.showAfterFirstFrameOrWaitCompleteShow(
+      viewId,
+      config.mainWindowOptions.showOnInit ?? true,
+      config.mainWindowOptions.fullScreen ?? false,
+    );
   }
 
   // ===========================================================================
@@ -1047,6 +1048,7 @@ class _ViewsManagerImpl implements ViewsManager {
       fullScreen: preferred.fullScreen ?? global.fullScreen,
       alwaysOnTop: preferred.alwaysOnTop ?? global.alwaysOnTop,
       showOnInit: preferred.showOnInit ?? global.showOnInit,
+      maximize: preferred.maximize ?? global.maximize,
     );
   }
 
@@ -1064,6 +1066,7 @@ class _ViewsManagerImpl implements ViewsManager {
       title: preferred.title ?? global.title,
       alwaysOnTop: preferred.alwaysOnTop ?? global.alwaysOnTop,
       showOnInit: preferred.showOnInit ?? global.showOnInit,
+      maximize: preferred.maximize ?? global.maximize,
     );
   }
 

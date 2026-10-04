@@ -69,6 +69,8 @@ class WindowState {
     var isPreConfirm: Bool = false
     /// Borderless child popup; skips soft-close and last-window accounting.
     var isPopup: Bool = false
+    /// Hide after the current fullscreen exit finishes.
+    var isHideRequestActive: Bool = false
     /// Last opacity from Dart; show must not overwrite it.
     var opacity: CGFloat = 1.0
 }
@@ -89,6 +91,8 @@ class MVDPopupWindow: NSWindow {
 class MultiviewDesktopImpl: NSObject, NSWindowDelegate {
 
     static let shared: MultiviewDesktopImpl = MultiviewDesktopImpl()
+
+    private var isAppInit: Bool = true
 
     private var hasTaskbarCallback = false
 
@@ -160,6 +164,7 @@ class MultiviewDesktopImpl: NSObject, NSWindowDelegate {
         windowStates[viewId] = WindowState()
         window.delegate = self
         mainViewId = viewId
+        isAppInit = false
     }
 
     // MARK: - Dock / activation (macOS hide-instead-of-quit)
@@ -203,7 +208,7 @@ class MultiviewDesktopImpl: NSObject, NSWindowDelegate {
     func replyToApplicationShouldTerminate(terminate: Bool) {
         isConfirmTerminate = terminate
         guard terminate else { return }
-        
+
         DispatchQueue.main.async {
             NSApp.terminate(nil)
         }
@@ -274,7 +279,7 @@ class MultiviewDesktopImpl: NSObject, NSWindowDelegate {
         if hasVisibleWindows {
             return false
         }
-        return showHiddenWindowsIfNeeded()
+         return showHiddenWindowsIfNeeded()
     }
 
     /// Shows windows that were orderOut'd (e.g. dock click / hide-on-close).
@@ -282,6 +287,9 @@ class MultiviewDesktopImpl: NSObject, NSWindowDelegate {
     /// (startup orderOut alone does not count).
     @discardableResult
     private func showHiddenWindowsIfNeeded() -> Bool {
+        if isAppInit {
+            return false
+        }
         guard !windows.isEmpty else {
             return false
         }
@@ -923,6 +931,9 @@ class MultiviewDesktopImpl: NSObject, NSWindowDelegate {
             return
         }
         emitEvent("leave-full-screen", viewId: viewId)
+        guard let state = windowStates[viewId], state.isHideRequestActive else { return }
+        state.isHideRequestActive = false
+        mvdHide(viewId)
     }
 
     // MARK: - Per-view method handler
@@ -1345,7 +1356,7 @@ class MultiviewDesktopImpl: NSObject, NSWindowDelegate {
             result(res)
 
         case "startResizing":
-            //TODO
+            // don't support on MacOS
             result(nil)
 
         case "startDragging":
