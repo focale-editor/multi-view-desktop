@@ -69,6 +69,7 @@ def open_close_cycle(
 
 def matrix_all_speeds(client: MvdE2eClient, *, count: int = DEFAULT_COUNT) -> None:
     for anim_ms in ANIM_MS_STEPS:
+        print(f"  animationMs={anim_ms}, windows={count}", flush=True)
         open_close_cycle(client, animation_ms=anim_ms, count=count)
 
 

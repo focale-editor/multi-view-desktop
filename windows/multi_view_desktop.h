@@ -47,6 +47,10 @@ class MultiViewDesktop {
   void SetEngine(FlutterDesktopEngineRef engine);
   FlutterDesktopEngineRef engine() const { return engine_; }
 
+  /// Creates a Flutter view without exposing an uninitialized accessibility delegate.
+  FlutterDesktopViewControllerRef CreateViewController(
+      const FlutterDesktopViewControllerProperties& properties);
+
   void SetMainHostWindow(HWND hwnd) { main_host_window_ = hwnd; }
   int64_t main_view_id() const { return main_view_id_; }
 

@@ -14,7 +14,7 @@ void main() {
       applier = ViewOptionsApplier(ffi: ffi);
     });
 
-    test('applyWindow maps all provided options', () {
+    test('applyWindow maps options applied after native creation', () {
       applier.applyWindow(
         1,
         WindowOptions(
@@ -37,9 +37,10 @@ void main() {
       expect(ffi.hasCall('setMinSize:1:50.0x50.0'), isTrue);
       expect(ffi.hasCall('setMaxSize:1:400.0x400.0'), isTrue);
       expect(ffi.hasCall('setTitle:1:Hello'), isTrue);
-      expect(ffi.hasCall('setTitleBarStyle:1:hidden'), isTrue);
+      // Title bar flags belong to createWindow; fullscreen follows first frame.
+      expect(ffi.hasCall('setTitleBarStyle:1:hidden'), isFalse);
       expect(ffi.hasCall('setAlwaysOnTop:1:true'), isTrue);
-      expect(ffi.hasCall('setFullScreen:1:false'), isTrue);
+      expect(ffi.hasCall('setFullScreen:1:false'), isFalse);
     });
 
     test('applyWindow with only defaults still applies default alignment', () {

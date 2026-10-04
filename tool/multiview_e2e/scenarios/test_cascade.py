@@ -101,13 +101,29 @@ def cascade_abort(client: MvdE2eClient) -> None:
 
 
 def close_primary_with_secondaries(client: MvdE2eClient) -> None:
-    """Closing primary under softCascade tears down secondaries and the app."""
+    """Closing primary under softCascade tears down its children and the app."""
     client.set_close_mode("softCascade")
-    ids = client.create_windows(3)
+    primary = client.primary_window_id()
+    ids = [
+        client.create_window(title=f"cascade-child-{i}", parentId=primary)
+        for i in range(3)
+    ]
     assert len(ids) == 3
-    primary = int(client.snapshot()["windows"][0])
     # Soft-close of primary may reset the socket mid-RPC as the process exits.
     client.close_window(primary)
+
+
+def independent_windows_survive(client: MvdE2eClient) -> None:
+    """Dynamic anchoring keeps independent roots alive when the anchor closes."""
+    client.set_close_mode("softCascade")
+    primary = client.primary_window_id()
+    ids = client.create_windows(3)
+    assert client.close_window(primary)
+    snapshot = client.snapshot()
+    assert primary not in snapshot["windows"], snapshot
+    assert set(ids).issubset(snapshot["windows"]), snapshot
+    assert snapshot["anchorId"] in ids, snapshot
+    client.assert_alive()
 
 
 SCENARIOS = {
@@ -116,6 +132,7 @@ SCENARIOS = {
     "destroy": destroy_mode,
     "abort": cascade_abort,
     "primary_with_secondaries": close_primary_with_secondaries,
+    "independent_windows": independent_windows_survive,
 }
 
 

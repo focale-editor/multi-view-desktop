@@ -36,7 +36,8 @@ class DialogScope extends InheritedWidget {
   }
 
   @override
-  bool updateShouldNotify(DialogScope oldWidget) => notifier != oldWidget.notifier;
+  bool updateShouldNotify(DialogScope oldWidget) =>
+      notifier != oldWidget.notifier;
 }
 
 /// Semi-transparent overlay over a parent window while a modal dialog is open.
@@ -87,14 +88,14 @@ class DialogModalLayer extends StatelessWidget {
     return ValueListenableBuilder<List<DialogInfo>>(
       valueListenable: notifier,
       builder: (context, modalList, _) {
-        bool showBarrier =
-            showBarrierForNotModalDialog &&
-            modalList.isNotEmpty &&
-            modalList.any((e) => !e.isModal && MultiViewDesktop.fromId(e.id).isVisible());
         final bool anyIsModal = modalList.any((e) => e.isModal);
-        if (anyIsModal) {
-          showBarrier = false;
-        }
+        final bool showBarrier =
+            anyIsModal ||
+            (showBarrierForNotModalDialog &&
+                modalList.any(
+                  (e) =>
+                      !e.isModal && MultiViewDesktop.fromId(e.id).isVisible(),
+                ));
         return GestureDetector(
           behavior: HitTestBehavior.translucent,
           onTap: () {
@@ -113,7 +114,10 @@ class DialogModalLayer extends StatelessWidget {
                 duration: animationDuration,
                 child: IgnorePointer(
                   ignoring: !showBarrier,
-                  child: ColoredBox(color: barrierColor, child: const SizedBox.expand()),
+                  child: ColoredBox(
+                    color: barrierColor,
+                    child: const SizedBox.expand(),
+                  ),
                 ),
               ),
             ],

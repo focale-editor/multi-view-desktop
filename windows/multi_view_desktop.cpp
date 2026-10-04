@@ -18,6 +18,7 @@
 #include "multi_view_desktop.h"
 #include "mvd_windows_screen.h"
 #include "mvd_windows_taskbar_menu.h"
+#include "mvd_windows_view_creation.h"
 
 #pragma comment(lib, "dwmapi.lib")
 #pragma comment(lib, "user32.lib")
@@ -259,6 +260,16 @@ namespace multi_view_desktop {
 
     void MultiViewDesktop::SetEngine(FlutterDesktopEngineRef engine) {
         engine_ = engine;
+    }
+
+    FlutterDesktopViewControllerRef MultiViewDesktop::CreateViewController(
+            const FlutterDesktopViewControllerProperties &properties) {
+        ScopedViewCreation guard;
+        if (!guard.is_active()) {
+            OutputDebugStringW(L"[MVD] Cannot install Flutter view creation hook\n");
+            return nullptr;
+        }
+        return FlutterDesktopEngineCreateViewController(engine_, &properties);
     }
 
     void MultiViewDesktop::ResizeFlutterContent(MultiViewDesktop *window) {
@@ -836,7 +847,7 @@ int64_t MultiViewDesktop::CreateSecondaryWindow(const flutter::EncodableMap &arg
             client_height,
     };
     FlutterDesktopViewControllerRef view_controller =
-            FlutterDesktopEngineCreateViewController(engine_, &properties);
+            CreateViewController(properties);
     if (!view_controller) {
         DestroyWindow(host_hwnd);
         return -1;
@@ -939,7 +950,7 @@ int64_t MultiViewDesktop::CreateModalDialogWindow(
             client_height,
     };
     FlutterDesktopViewControllerRef view_controller =
-            FlutterDesktopEngineCreateViewController(engine_, &properties);
+            CreateViewController(properties);
     if (!view_controller) {
         DestroyWindow(host_hwnd);
         return -1;
@@ -1058,7 +1069,7 @@ int64_t MultiViewDesktop::CreatePopupWindow(const flutter::EncodableMap &args) {
             client_height,
     };
     FlutterDesktopViewControllerRef view_controller =
-            FlutterDesktopEngineCreateViewController(engine_, &properties);
+            CreateViewController(properties);
     if (!view_controller) {
         DestroyWindow(host_hwnd);
         return -1;

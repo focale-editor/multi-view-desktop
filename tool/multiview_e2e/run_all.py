@@ -14,7 +14,7 @@ ROOT = Path(__file__).resolve().parent
 SCENARIOS = ROOT / "scenarios"
 sys.path.insert(0, str(ROOT))
 
-from mvd_e2e.report import write_aggregate  # noqa: E402
+from mvd_e2e.report import results_dir, write_aggregate  # noqa: E402
 
 
 def main() -> int:
@@ -72,8 +72,8 @@ def main() -> int:
         proc = subprocess.run(cmd, cwd=str(ROOT))
         duration = time.perf_counter() - t0
         # Child writes its own latest.json; point aggregate at that path if present.
-        latest = ROOT / "results" / "latest.json"
-        marker = ROOT / "results" / "last_suite_path.txt"
+        latest = results_dir() / "latest.json"
+        marker = results_dir() / "last_suite_path.txt"
         report_path = None
         if marker.exists():
             report_path = marker.read_text(encoding="utf-8").strip() or None

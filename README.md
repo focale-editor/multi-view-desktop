@@ -60,6 +60,12 @@ Unlike libraries that spawn a new Flutter engine per window, multiview_desktop u
 
 > **Linux note.** Multi-view on Linux works under both X11 and Wayland. On Wayland, the compositor controls window placement, so `setPosition`, `setAlignment`, and `center` may be ignored silently. On X11, client-side positioning is supported. `PopupView` needs that positioning, so popups are disabled on Linux without X11 (Wayland). Use `GDK_BACKEND=x11` if you need popups.
 
+On Windows, new Flutter views defer MSAA/UIA object queries until their native
+view delegate is bound. This avoids a Flutter 3.47 initialization crash when an
+accessibility client queries a window during creation. Accessibility is available
+normally after creation; existing windows are unaffected. The example builds
+`multiview_desktop_test`, which verifies early queries and subsequent restoration.
+
 ---
 
 ## Architecture overview
@@ -1274,7 +1280,11 @@ class _MyPageState extends State<MyPage> with WindowListener {
 
 ### Close mode
 
-`CloseMode` controls what happens to other open windows when the main window is closed.
+`CloseMode` controls how a closing window handles its child windows. With the
+example's `enableDynamicAnchor: true`, independent windows remain open when the
+anchor closes and a remaining root becomes the new anchor. With dynamic anchoring
+disabled, closing the anchor also closes the other roots using the selected mode.
+`MultiViewDesktop.closeApp` always applies the mode to every root.
 
 Set it in `MultiAppConfig.generalParams.closeMode` at startup, or change it at runtime:
 
@@ -1284,10 +1294,10 @@ MultiViewDesktop.setCloseMode(CloseMode.softCascade);
 
 | Mode | Behavior |
 |---|---|
-| `CloseMode.softCascade` | Soft-close secondary windows one by one from newest to oldest, then soft-close the main window. Each window runs the full close cycle; use `cancelCascadeClose` inside `onWindowClose` to let the user abort. |
-| `CloseMode.none` | Close only the main window. Secondary windows stay open. |
-| `CloseMode.forceSecondary` | Force-close all secondary windows immediately, then soft-close the main window. |
-| `CloseMode.destroy` | Force-close every window without running any close cycle. |
+| `CloseMode.softCascade` | Soft-close descendants one by one from newest to oldest, then soft-close the parent. Each window runs the full close cycle; use `cancelCascadeClose` inside `onWindowClose` to let the user abort. |
+| `CloseMode.none` | Close only the requested window. Child windows stay open. |
+| `CloseMode.forceSecondary` | Force-close descendants, then soft-close the parent. |
+| `CloseMode.destroy` | Force-close the entire window tree without running any close cycle. |
 
 `CloseMode.softCascade` is the default. It is the safest mode for apps that show unsaved-data dialogs, because each window gets a chance to respond before it is closed.
 
@@ -2338,23 +2348,24 @@ List of observers notified on window and dialog lifecycle events. See [Window ob
 
 ### CloseMode
 
-Controls what happens to other windows when the main window close button is pressed.
+Controls how a closing window handles its descendants. Independent roots remain
+open with dynamic anchoring enabled; `closeApp` closes all roots.
 
 ##### softCascade
 
-Default. Soft-closes secondary windows one by one from newest to oldest, then soft-closes the main window. Each window runs through the full close cycle (prevent-close check, `onWindowClose`). Use `cancelCascadeClose` inside a confirmation dialog to let the user abort without losing unsaved work.
+Default. Soft-closes descendants one by one from newest to oldest, then soft-closes the parent. Each window runs through the full close cycle (prevent-close check, `onWindowClose`). Use `cancelCascadeClose` inside a confirmation dialog to let the user abort without losing unsaved work.
 
 ##### none
 
-Closes only the main window. Secondary windows stay open.
+Closes only the requested window. Child windows stay open.
 
 ##### forceSecondary
 
-Force-closes all secondary windows immediately, then soft-closes the main window.
+Force-closes descendants, then soft-closes the parent.
 
 ##### destroy
 
-Force-closes every window without running any close cycle.
+Force-closes the entire window tree without running any close cycle.
 
 ---
 

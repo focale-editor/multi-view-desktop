@@ -878,7 +878,7 @@ void MultiViewDesktopCreateMainView(
 
     FlutterDesktopViewControllerProperties properties = {width, height};
     FlutterDesktopViewControllerRef controller =
-            FlutterDesktopEngineCreateViewController(impl.engine(), &properties);
+            impl.CreateViewController(properties);
     if (!controller) {
         MvdLog("CreateMainView FAIL: FlutterDesktopEngineCreateViewController returned null");
         return;

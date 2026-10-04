@@ -84,7 +84,15 @@ abstract class FfiBridge implements Finalizable {
     clearOldNativeCallbacks();
   }
 
-  static final FfiBridge instance = _create();
+  /// Shared native bridge used by the multi-view root.
+  static FfiBridge get instance => _instance;
+
+  /// Native bridge selected for the current host.
+  static FfiBridge _instance = _create();
+
+  /// Installs a bridge before constructing the root in widget tests.
+  @visibleForTesting
+  static set instanceForTesting(FfiBridge bridge) => _instance = bridge;
 
   static FfiBridge _create() {
     try {
@@ -266,9 +274,7 @@ abstract class FfiBridge implements Finalizable {
   void _refreshIsolateDetachFinalizer() {
     if (!_supported) return;
     try {
-      _isolateDetachFinalizer ??= NativeFinalizer(
-        _lib!.lookup<NativeFunction<_DetachIsolateN>>('mvd_detach_isolate_callbacks').cast(),
-      );
+      _isolateDetachFinalizer ??= NativeFinalizer(_lib!.lookup<NativeFunction<_DetachIsolateN>>('mvd_detach_isolate_callbacks').cast());
       _isolateDetachFinalizer!.detach(this);
       final generation = _lib!.lookupFunction<_I64N, _I64D>('mvd_event_callback_generation')();
       if (generation == 0) return;
@@ -312,28 +318,11 @@ abstract class FfiBridge implements Finalizable {
 
   // Create. Native returns the new Flutter view id, or -1 on failure.
 
-  int createWindow({
-    required int token,
-    required String title,
-    required String titleBarStyleStr,
-    required bool windowButtonVisibility,
-    required Size windowSize,
-    required Offset? pos,
-    int? parentId,
-  }) {
+  int createWindow({required int token, required String title, required String titleBarStyleStr, required bool windowButtonVisibility, required Size windowSize, required Offset? pos, int? parentId}) {
     if (!_supported) return _kNoViewId;
     _writeStr(_str, title);
     _writeStr(_str2, titleBarStyleStr);
-    return _createWindowN(
-      token,
-      windowSize.width,
-      windowSize.height,
-      windowButtonVisibility ? 1 : 0,
-      pos != null ? 1 : 0,
-      pos?.dx ?? 0,
-      pos?.dy ?? 0,
-      parentId ?? -1,
-    );
+    return _createWindowN(token, windowSize.width, windowSize.height, windowButtonVisibility ? 1 : 0, pos != null ? 1 : 0, pos?.dx ?? 0, pos?.dy ?? 0, parentId ?? -1);
   }
 
   int createDialog({
@@ -349,17 +338,7 @@ abstract class FfiBridge implements Finalizable {
     if (!_supported) return _kNoViewId;
     _writeStr(_str, title);
     _writeStr(_str2, titleBarStyleStr);
-    return _createDialogN(
-      token,
-      parentId,
-      windowSize.width,
-      windowSize.height,
-      isModal ? 1 : 0,
-      windowButtonVisibility ? 1 : 0,
-      pos != null ? 1 : 0,
-      pos?.dx ?? 0,
-      pos?.dy ?? 0,
-    );
+    return _createDialogN(token, parentId, windowSize.width, windowSize.height, isModal ? 1 : 0, windowButtonVisibility ? 1 : 0, pos != null ? 1 : 0, pos?.dx ?? 0, pos?.dy ?? 0);
   }
 
   int createPopupWindow({required int token, required int parentId, required Size windowSize}) {
@@ -490,31 +469,18 @@ abstract class FfiBridge implements Finalizable {
     return _readStr(_str);
   }
 
-  void setTitleBarStyle(
-    int viewId, {
-    required TitleBarStyle style,
-    required bool closeVisibility,
-    required bool maximizeVisibility,
-    required bool minimizeVisibility,
-  }) {
+  void setTitleBarStyle(int viewId, {required TitleBarStyle style, required bool closeVisibility, required bool maximizeVisibility, required bool minimizeVisibility}) {
     if (!_supported) return;
     _writeStr(_str, style.name);
     _setTitleBarN(viewId, closeVisibility ? 1 : 0, maximizeVisibility ? 1 : 0, minimizeVisibility ? 1 : 0);
   }
 
-  ({TitleBarStyle? style, bool? closeVisibility, bool? maximizeVisibility, bool? minimizeVisibility}) getTitleBarStyle(
-    int viewId,
-  ) {
+  ({TitleBarStyle? style, bool? closeVisibility, bool? maximizeVisibility, bool? minimizeVisibility}) getTitleBarStyle(int viewId) {
     if (!_supported || _getTitleBarN(viewId) == 0) {
       return (style: null, closeVisibility: null, maximizeVisibility: null, minimizeVisibility: null);
     }
     final name = _readStr(_str);
-    return (
-      style: name == 'hidden' ? TitleBarStyle.hidden : TitleBarStyle.normal,
-      closeVisibility: _i32[0] != 0,
-      maximizeVisibility: _i32[1] != 0,
-      minimizeVisibility: _i32[2] != 0,
-    );
+    return (style: name == 'hidden' ? TitleBarStyle.hidden : TitleBarStyle.normal, closeVisibility: _i32[0] != 0, maximizeVisibility: _i32[1] != 0, minimizeVisibility: _i32[2] != 0);
   }
 
   void setAsFrameless(int viewId) => _v(_setFramelessN, viewId);
@@ -760,7 +726,7 @@ abstract class FfiBridge implements Finalizable {
       maximizeVisibility: config.globalWindowOptions.windowButtonVisibility ?? false,
     );
 
-    final defaultColor = config.globalWindowOptions.backgroundColor?? Colors.white;
+    final defaultColor = config.globalWindowOptions.backgroundColor ?? Colors.white;
     setBackgroundColor(viewId, color: defaultColor);
   }
 }
@@ -836,15 +802,16 @@ class RecordingFfiBridge extends FfiBridge {
   }
 
   @override
-  int createWindow({
-    required int token,
-    required String title,
-    required String titleBarStyleStr,
-    required bool windowButtonVisibility,
-    required Size windowSize,
-    required Offset? pos,
-    int? parentId,
-  }) {
+  bool checkWindowExist(int viewId) => true;
+
+  @override
+  bool isVisible(int viewId) => true;
+
+  @override
+  void setAnchorViewId(int viewId) => _rec('setAnchorViewId:$viewId');
+
+  @override
+  int createWindow({required int token, required String title, required String titleBarStyleStr, required bool windowButtonVisibility, required Size windowSize, required Offset? pos, int? parentId}) {
     final id = _nextCreateId();
     _rec('createWindow:$id:parent=${parentId ?? -1}');
     return id;
@@ -893,8 +860,7 @@ class RecordingFfiBridge extends FfiBridge {
   void setConfirmClose(int viewId, {required bool isConfirm}) => _rec('setConfirmClose:$viewId:$isConfirm');
 
   @override
-  void setPreventClose(int viewId, {required bool isPreventClose}) =>
-      _rec('setPreventClose:$viewId:$isPreventClose');
+  void setPreventClose(int viewId, {required bool isPreventClose}) => _rec('setPreventClose:$viewId:$isPreventClose');
 
   @override
   void completeModalDialogCreate(int viewId) => _rec('completeModalDialogCreate:$viewId');
@@ -909,8 +875,7 @@ class RecordingFfiBridge extends FfiBridge {
   void focus(int viewId) => _rec('focus:$viewId');
 
   @override
-  void maximize(int viewId, {bool vertically = false}) =>
-      _rec('maximize:$viewId:vertically=$vertically');
+  void maximize(int viewId, {bool vertically = false}) => _rec('maximize:$viewId:vertically=$vertically');
 
   @override
   void setOpacity(int viewId, double opacity) {
@@ -976,8 +941,7 @@ class RecordingFfiBridge extends FfiBridge {
   void setBackgroundColor(int viewId, {required Color color}) => _rec('setBackgroundColor:$viewId');
 
   @override
-  void setAlwaysOnTop(int viewId, {required bool isAlwaysOnTop}) =>
-      _rec('setAlwaysOnTop:$viewId:$isAlwaysOnTop');
+  void setAlwaysOnTop(int viewId, {required bool isAlwaysOnTop}) => _rec('setAlwaysOnTop:$viewId:$isAlwaysOnTop');
 
   @override
   void setFullScreen(int viewId, {required bool isFullScreen}) => _rec('setFullScreen:$viewId:$isFullScreen');
@@ -986,15 +950,9 @@ class RecordingFfiBridge extends FfiBridge {
   void setResizable(int viewId, bool isResizable) => _rec('setResizable:$viewId:$isResizable');
 
   @override
-  void setTitleBarStyle(
-    int viewId, {
-    required TitleBarStyle style,
-    required bool closeVisibility,
-    required bool maximizeVisibility,
-    required bool minimizeVisibility,
-  }) => _rec('setTitleBarStyle:$viewId:${style.name}');
+  void setTitleBarStyle(int viewId, {required TitleBarStyle style, required bool closeVisibility, required bool maximizeVisibility, required bool minimizeVisibility}) =>
+      _rec('setTitleBarStyle:$viewId:${style.name}');
 
   @override
-  void setAlignment(int viewId, {required Alignment alignment}) =>
-      _rec('setAlignment:$viewId:${alignment.x},${alignment.y}');
+  void setAlignment(int viewId, {required Alignment alignment}) => _rec('setAlignment:$viewId:${alignment.x},${alignment.y}');
 }

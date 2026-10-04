@@ -9,6 +9,7 @@ import subprocess
 import sys
 import threading
 import time
+from collections import deque
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from pathlib import Path
@@ -39,7 +40,7 @@ def default_device() -> str:
 def launched_example(
     *,
     device: str | None = None,
-    port: int = 9876,
+    port: int | None = None,
     extra_defines: list[str] | None = None,
     extra_env: dict[str, str] | None = None,
     ready_timeout: float = 120.0,
@@ -47,6 +48,7 @@ def launched_example(
 ) -> Iterator[tuple[MvdE2eClient, subprocess.Popen[str]]]:
     """Start `flutter run` for example with MVD_E2E harness, yield client, then kill."""
     device = device or default_device()
+    port = port if port is not None else int(os.environ.get("MVD_E2E_PORT", "9876"))
     env = os.environ.copy()
     env["MVD_E2E_PORT"] = str(port)
     if extra_env:
@@ -98,17 +100,21 @@ def launched_example(
         cmd,
         cwd=str(EXAMPLE_DIR),
         env=env,
+        stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         text=True,
+        encoding="utf-8",
+        errors="replace",
     )
     # Verbose native MVD logs fill the pipe and deadlock Flutter if unread.
+    startup_output: deque[str] = deque(maxlen=40)
     def _drain_stdout() -> None:
         if proc.stdout is None:
             return
         try:
-            while proc.stdout.readline():
-                pass
+            for line in proc.stdout:
+                startup_output.append(line.rstrip())
         except Exception:  # noqa: BLE001
             pass
 
@@ -118,7 +124,13 @@ def launched_example(
     drain_thread.start()
     client = MvdE2eClient(base_url=f"http://127.0.0.1:{port}")
     try:
-        client.wait_ready(timeout=ready_timeout)
+        try:
+            client.wait_ready(timeout=ready_timeout)
+        except E2eError as error:
+            output = "\n".join(startup_output)
+            raise E2eError(
+                f"{error}\nFlutter exit code: {proc.poll()}\nLast output:\n{output}"
+            ) from error
         # Primary FlView first-frame / GLX must settle before secondary create on X11.
         try:
             client.call("wait_open_settle")
@@ -175,7 +187,15 @@ def _terminate(proc: subprocess.Popen[str]) -> None:
         return
     try:
         if sys.platform.startswith("win"):
-            proc.terminate()
+            # flutter.bat runs through cmd.exe; stopping only that parent leaves
+            # Flutter and the example alive with the harness port still bound.
+            subprocess.run(
+                ["taskkill", "/PID", str(proc.pid), "/T", "/F"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                check=False,
+                timeout=8,
+            )
         else:
             proc.send_signal(signal.SIGTERM)
         try:
@@ -202,7 +222,7 @@ def run_scenario(
     (``close_app`` / primary cascade). Connection drops during the case are OK;
     success means the process/harness is gone afterwards.
     """
-    print(f"==> {name}")
+    print(f"==> {name}", flush=True)
     started = time.perf_counter()
     snap_before = None
     snap_after = None
