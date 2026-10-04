@@ -83,6 +83,7 @@ class _ViewsManagerImpl implements ViewsManager {
       anchorCandidatesExcluding: ({excludingViewId}) => _anchorCandidates(excludingViewId: excludingViewId),
       enableDynamicAnchor: config.generalParams.enableDynamicAnchor,
       isLastMacosRootView: _isLastMacosRootView,
+      mainRealViewId: () => _initRealId,
       invoke: _viewExistChecker,
     );
     final viewAnimator = ViewAnimator();

@@ -118,6 +118,7 @@ class LifecycleTestHarness {
           ({int? excludingViewId}) => registry.rootWindowIds(excludingId: excludingViewId),
       isLastMacosRootView: isLastMacosRootView ?? (_) => false,
       enableDynamicAnchor: enableDynamicAnchor,
+      mainRealViewId: () => 0,
     );
 
     lifecycle = LifecycleViewsController(

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:developer';
 import 'dart:io';
 
@@ -22,8 +23,11 @@ Future<void> initSystemTray() async {
   // create context menu
   final Menu menu = Menu(
     items: [
-      MenuItem(label: 'Hide', key: 'hide_window'),
-      MenuItem(label: 'Show', key: 'show_window'),
+      if (MultiViewDesktop.allWindowViewIds.isNotEmpty) ...[
+        MenuItem(label: 'Hide first', key: 'hide_window'),
+        MenuItem(label: 'Show first', key: 'show_window'),
+      ],
+      if (MultiViewDesktop.allWindowViewIds.isEmpty) MenuItem(label: 'Open', key: 'open_window'),
       MenuItem(label: 'Exit', key: 'exit_app'),
     ],
   );
@@ -79,8 +83,8 @@ Future<void> main() async {
         // MVD_E2E_CLOSE_APP_AFTER_LAST / MVD_E2E_SAVE_LAST_WINDOW.
         closeAppAfterLastWindowClosed: e2eCloseAppAfterLastWindowClosedFromEnvironment(),
         // closeAppAfterLastWindowClosed: true,
-        saveLastWindowToReopen: e2eSaveLastWindowToReopenFromEnvironment(),
-        // saveLastWindowToReopen: false,
+        // saveLastWindowToReopen: e2eSaveLastWindowToReopenFromEnvironment(),
+        saveLastWindowToReopen: false,
         onTerminate: () async {
           // do something before terminate
           // for example soft close instead of destroy
@@ -159,11 +163,13 @@ class AppWindowObserver extends WindowObserver {
   @override
   void onWindowOpened(int viewId, {int? parentViewId}) {
     log('window $viewId opened, parent $parentViewId', name: 'MVD');
+    initSystemTray();
   }
 
   @override
   void onWindowClosed(int viewId) {
     log('window $viewId closed', name: 'MVD');
+    initSystemTray();
   }
 
   @override
@@ -235,14 +241,14 @@ class _MainWindowRootState extends State<MainWindowRoot> with TrayListener {
       sharedConfig.isHideAppFromTaskbar = MultiViewDesktop.isHideAppFromTaskbar();
       sharedConfig.closeMode = MultiViewDesktop.getCloseMode();
       sharedConfig.anchorId = MultiViewDesktop.getAnchorId();
-      await initSystemTray();
+
       trayManager.addListener(this);
     });
   }
 
   @override
   void dispose() {
-    trayManager.removeListener(this);
+    // trayManager.removeListener(this);
 
     themeConfig.removeListener(_onThemeChanged);
     super.dispose();
@@ -270,13 +276,22 @@ class _MainWindowRootState extends State<MainWindowRoot> with TrayListener {
 
   @override
   void onTrayMenuItemClick(MenuItem menuItem) {
-    final mvd = MultiViewDesktop.of(context);
-    if (menuItem.key == 'show_window') {
-      mvd.show();
-    } else if (menuItem.key == 'exit_app') {
+    final allViews = MultiViewDesktop.allWindowViewIds;
+    if (allViews.isNotEmpty) {
+      final mvd = MultiViewDesktop.fromId(MultiViewDesktop.allWindowViewIds.first);
+      if (menuItem.key == 'show_window') {
+        mvd.show();
+      }
+      if (menuItem.key == 'hide_window') {
+        mvd.hide();
+      }
+    }
+    if (menuItem.key == 'open_window' && allViews.isEmpty) {
+      openWindow((ctx, id) => HomePage());
+    }
+
+    if (menuItem.key == 'exit_app') {
       MultiViewDesktop.closeApp();
-    } else if (menuItem.key == 'hide_window') {
-      mvd.hide();
     }
   }
 

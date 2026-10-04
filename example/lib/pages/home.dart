@@ -654,7 +654,9 @@ class _HomePageState extends State<HomePage> with WindowListener {
                     Padding(
                       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                       child: _AlignmentGrid(
-                        onSelected: (alignment) => MultiViewDesktop.of(context).setAlignment(alignment),
+                        onSelected: (alignment) => MultiViewDesktop.of(
+                          context,
+                        ).setAlignment(alignment, animation: AnimationSettings(duration: Duration(milliseconds: 300))),
                       ),
                     ),
                   ],

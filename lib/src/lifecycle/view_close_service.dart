@@ -115,10 +115,16 @@ class ViewCloseService {
     delegate.disposeView(viewId);
 
     ffi.setConfirmClose(viewId, isConfirm: true);
-    if (isModalDialog) {
-      ffi.destroyModalDialog(viewId);
+
+    if (delegate.enableDynamicAnchor && viewId == delegate.mainRealViewId()) {
+      // hide main view instead of fully close. so other plugins continue live
+      ffi.hide(viewId);
     } else {
-      ffi.forceCloseView(viewId);
+      if (isModalDialog) {
+        ffi.destroyModalDialog(viewId);
+      } else {
+        ffi.forceCloseView(viewId);
+      }
     }
     cascadeCloseService.completeWindow(viewId);
   }
