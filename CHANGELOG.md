@@ -1,3 +1,11 @@
+## 2.0.1
+
+- Added param `maximize` on init `WindowOptions` and `DialogOptions`
+- Added `mainWindowOptions` only for init window.
+- Fix: `showOnInit: false` on the startup window. The initial window stays hidden until `completeShow()`, same as windows opened later
+- Breaking. `closeAppAfterLastWindowClosed` moved from `MacosPlatformParams` to `MultiPlatformParams` (`generalParams`).
+- [Check README] Linux runner update
+
 ## 2.0.0
 
 - Breaking. Native window calls go through FFI instead of MethodChannel. Many

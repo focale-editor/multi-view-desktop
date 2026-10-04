@@ -82,7 +82,6 @@ Future<void> main() async {
       macosParams: MacosPlatformParams(
         // Defaults match example dock behavior; cascade-exit E2E overrides via
         // MVD_E2E_CLOSE_APP_AFTER_LAST / MVD_E2E_SAVE_LAST_WINDOW.
-        // closeAppAfterLastWindowClosed: true,
         saveLastWindowToReopen: e2eSaveLastWindowToReopenFromEnvironment(),
         onTerminate: () async {
           // do something before terminate

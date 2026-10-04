@@ -562,7 +562,7 @@ class _HomePageState extends State<HomePage> with WindowListener {
                   ),
                   _tile(
                     'circlesDialog',
-                    subtitle: 'Native dialog 1000×640, 400 animated translucent circles',
+                    subtitle: 'Native dialog 1000x640, 400 animated translucent circles',
                     onTap: () async {
                       final res = await openDialog<String?>(
                         (ctx, viewId) => const CirclesScreen(),
