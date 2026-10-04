@@ -99,7 +99,7 @@ abstract class ViewOwnerBase {
     }
 
     if (!isFullScreen && maximize) {
-      if (Platform.isWindows) {
+      if (Platform.isWindows || Platform.isMacOS) {
         host.proxies.state.maximize(viewId);
       }
     }

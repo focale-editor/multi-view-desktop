@@ -115,8 +115,7 @@ class ViewCloseService {
     delegate.disposeView(viewId);
 
     ffi.setConfirmClose(viewId, isConfirm: true);
-
-    if (viewId == delegate.mainRealViewId() && delegate.stayAliveMainWindow) {
+    if (viewId == delegate.mainRealViewId() && delegate.stayAliveMainWindow && !Platform.isMacOS) {
       // hide and unregister main view instead of fully close
       ffi.hide(viewId);
       ffi.setIgnoreMouseEvents(viewId, true);
@@ -237,7 +236,7 @@ class ViewCloseService {
 
   void _destroyLastWindowIfExist() {
     try {
-      if(!delegate.stayAliveMainWindow) return;
+      if (!delegate.stayAliveMainWindow) return;
       ffi.forceCloseView(delegate.mainRealViewId());
     } catch (_) {
       // ignore

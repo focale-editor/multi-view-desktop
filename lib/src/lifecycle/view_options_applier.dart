@@ -42,7 +42,7 @@ class ViewOptionsApplier {
     if (opts.maximumSize != null) {
       _ffi.setMaxSize(viewId, size: opts.maximumSize!);
     }
-    if (opts.maximize == true && !Platform.isWindows) {
+    if (opts.maximize == true && Platform.isLinux) {
       _ffi.maximize(viewId);
     }
     if (opts.title != null) {
