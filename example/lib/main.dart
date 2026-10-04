@@ -46,7 +46,7 @@ Future<void> main() async {
   runMultiApp(
     home: (globalScopeContext, id) {
       final mvd = MultiViewDesktop.fromId(id);
-      // WidgetsBinding.instance.endOfFrame.then((_) => mvd.completeShow());
+      WidgetsBinding.instance.endOfFrame.then((_) => mvd.completeShow());
       // force anim for init window for example
       mvd.setForceAnimation(
         ViewAnimationType.createWindow,
