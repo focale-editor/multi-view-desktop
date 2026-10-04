@@ -94,6 +94,10 @@ class MultiviewDesktopImpl: NSObject, NSWindowDelegate {
 
     private var isAppInit: Bool = true
 
+    var startupHidePending = true
+    private var startupHideObserver: NSObjectProtocol?
+    private var startupHideOrderingOut = false
+
     private var hasTaskbarCallback = false
 
     /// Second pass of `applicationShouldTerminate` after Dart approved quit.
@@ -1086,9 +1090,7 @@ class MultiviewDesktopImpl: NSObject, NSWindowDelegate {
             result(window.isOnActiveSpace)
 
         case "maximize":
-            if !window.isZoomed {
-                window.zoom(nil)
-            }
+            zoomWindow(window)
             result(nil)
 
         case "unmaximize":
@@ -1407,13 +1409,67 @@ class MultiviewDesktopImpl: NSObject, NSWindowDelegate {
 
     // MARK: - Helpers
 
+    /// Hide [window] until [focusWindow]. AppKit can order it front again
+    /// (visibleAtLaunch, `zoom`) after the first `orderOut`. In release that
+    /// frame shows the title bar before Flutter content.
+    func armStartupHide(_ window: NSWindow) {
+        startupHidePending = true
+        window.alphaValue = 0
+        window.orderOut(nil)
+        if let startupHideObserver {
+            NotificationCenter.default.removeObserver(startupHideObserver)
+        }
+        startupHideObserver = NotificationCenter.default.addObserver(
+            forName: NSWindow.didChangeOcclusionStateNotification,
+            object: window,
+            queue: .main
+        ) { [weak self, weak window] _ in
+            guard let self, let window else { return }
+            guard self.startupHidePending, window.isVisible, !self.startupHideOrderingOut else { return }
+            self.startupHideOrderingOut = true
+            window.orderOut(nil)
+            self.startupHideOrderingOut = false
+        }
+        DispatchQueue.main.async { [weak self, weak window] in
+            guard let self, let window else { return }
+            guard self.startupHidePending, window.isVisible else { return }
+            window.orderOut(nil)
+        }
+    }
+
+    func noteStartupShown() {
+        startupHidePending = false
+        if let startupHideObserver {
+            NotificationCenter.default.removeObserver(startupHideObserver)
+            self.startupHideObserver = nil
+        }
+    }
+
+    /// `zoom` orders a hidden window onscreen. While startup hide is pending,
+    /// zoom without animation and hide again so the title bar does not flash.
+    func zoomWindow(_ window: NSWindow) {
+        guard !window.isZoomed else { return }
+        if startupHidePending {
+            NSAnimationContext.beginGrouping()
+            NSAnimationContext.current.duration = 0
+            window.zoom(nil)
+            NSAnimationContext.endGrouping()
+            window.orderOut(nil)
+            return
+        }
+        window.zoom(nil)
+    }
+
     /// Bring window to front. Deferred retries help when Spaces switch is async.
     func focusWindow(_ window: NSWindow) {
+        noteStartupShown()
         if window.isMiniaturized {
             window.deminiaturize(nil)
         }
 
+        let alpha = window.alphaValue
         window.makeKeyAndOrderFront(nil)
+        window.alphaValue = alpha
         NSApp.activate(ignoringOtherApps: true)
     }
 

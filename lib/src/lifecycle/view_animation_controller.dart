@@ -116,15 +116,19 @@ class ViewAnimationController {
     }
     final pending = _pendingForceOverrides[viewId];
     if (pending == null || !pending.any((e) => e.type == type)) return null;
-    _pendingForceOverrides.remove(viewId);
-    return pending.firstWhere((e) => e.type == type).settings;
+
+    final res = pending.firstWhere((e) => e.type == type);
+    _pendingForceOverrides[viewId]?.remove(res);
+    return res.settings;
   }
 
   AnimationSettings? _takeSoftOverride(int viewId, ViewAnimationType type) {
     final pending = _pendingSoftOverrides[viewId];
     if (pending == null || !pending.any((e) => e.type == type)) return null;
-    _pendingSoftOverrides.remove(viewId);
-    return pending.firstWhere((e) => e.type == type).settings;
+
+    final res = pending.firstWhere((e) => e.type == type);
+    _pendingSoftOverrides[viewId]?.remove(res);
+    return res.settings;
   }
 
   /// Open fade `0 -> 1`, or [show] only when open fade is disabled in [policy].
@@ -144,6 +148,7 @@ class ViewAnimationController {
     });
 
     if (!policy.fadeInOnOpen && forceOverride == null) {
+      proxies.appearance.setOpacity(viewId, 1);
       proxies.state.show(viewId);
       return;
     }

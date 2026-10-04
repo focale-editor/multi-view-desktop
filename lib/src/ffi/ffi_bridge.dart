@@ -749,7 +749,7 @@ abstract class FfiBridge implements Finalizable {
     setMaximizable(viewId, true);
     setClosable(viewId, true);
     setAlwaysOnTop(viewId, isAlwaysOnTop: config.mainWindowOptions.alwaysOnTop ?? false);
-    setOpacity(viewId, 1);
+    if(!Platform.isMacOS) setOpacity(viewId, 1);
     setAspectRatio(viewId, 0);
     setIgnoreMouseEvents(viewId, false);
   }

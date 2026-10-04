@@ -558,8 +558,8 @@ public func mvdIsPreventClose(_ viewId: Int64) -> Int32 {
 
 @_cdecl("mvd_maximize")
 public func mvdMaximize(_ viewId: Int64, _ vertically: Int32) {
-    guard let window = win(viewId), !window.isZoomed else { return }
-    window.zoom(nil)
+    guard let window = win(viewId) else { return }
+    impl().zoomWindow(window)
 }
 
 @_cdecl("mvd_unmaximize")
