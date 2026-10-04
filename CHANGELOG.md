@@ -1,3 +1,8 @@
+## 2.0.2
+
+- Fix: MacOS init window show fix.
+- Fix: animation override take fix.
+
 ## 2.0.1
 
 - Added param `maximize` on init `WindowOptions` and `DialogOptions`
