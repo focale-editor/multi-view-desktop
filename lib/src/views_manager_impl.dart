@@ -43,6 +43,7 @@ class _ViewsManagerImpl implements ViewsManager {
 
   int _initRealId = _initPlatformId;
 
+  @override
   int get mainRealViewId => _initRealId;
 
   // Hot-restart view id shift.
@@ -79,10 +80,12 @@ class _ViewsManagerImpl implements ViewsManager {
     closeMode = config.generalParams.closeMode;
     final registry = ViewRegistry();
     final closeDelegate = ViewCloseDelegate(
+      stayAliveMainWindow: config.generalParams.stayAliveMainWindow,
       disposeView: _disposeView,
       anchorCandidatesExcluding: ({excludingViewId}) => _anchorCandidates(excludingViewId: excludingViewId),
       enableDynamicAnchor: config.generalParams.enableDynamicAnchor,
       isLastMacosRootView: _isLastMacosRootView,
+      closeAppAfterLastWindowClosed: config.generalParams.closeAppAfterLastWindowClosed,
       mainRealViewId: () => _initRealId,
       invoke: _viewExistChecker,
     );
@@ -612,7 +615,7 @@ class _ViewsManagerImpl implements ViewsManager {
   void applyNativeLifecyclePolicy() {
     if (Platform.isMacOS) {
       _ffiBridge.setTerminateAfterLastWindowClosed(
-        config.macosParams.closeAppAfterLastWindowClosed && !_saveLastWindowToReopen,
+        config.generalParams.closeAppAfterLastWindowClosed && !_saveLastWindowToReopen,
       );
       _ffiBridge.setHasTaskbarCallback(config.macosParams.onTaskbarTap != null);
     } else if (Platform.isLinux) {
@@ -902,6 +905,7 @@ class _ViewsManagerImpl implements ViewsManager {
       viewId,
       config.mainWindowOptions.showOnInit ?? true,
       config.mainWindowOptions.fullScreen ?? false,
+      config.mainWindowOptions.maximize ?? false,
     );
   }
 

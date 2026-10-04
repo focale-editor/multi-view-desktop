@@ -116,9 +116,10 @@ class ViewCloseService {
 
     ffi.setConfirmClose(viewId, isConfirm: true);
 
-    if (delegate.enableDynamicAnchor && viewId == delegate.mainRealViewId()) {
-      // hide main view instead of fully close. so other plugins continue live
+    if (viewId == delegate.mainRealViewId() && delegate.stayAliveMainWindow) {
+      // hide and unregister main view instead of fully close
       ffi.hide(viewId);
+      ffi.setIgnoreMouseEvents(viewId, true);
     } else {
       if (isModalDialog) {
         ffi.destroyModalDialog(viewId);
@@ -126,6 +127,12 @@ class ViewCloseService {
         ffi.forceCloseView(viewId);
       }
     }
+
+    // destroy main window if closeAppAfterLastWindowClosed == true and no more views exist
+    if (lifecycle.registry.windowViewIds.isEmpty && delegate.closeAppAfterLastWindowClosed) {
+      _destroyLastWindowIfExist();
+    }
+
     cascadeCloseService.completeWindow(viewId);
   }
 
@@ -220,8 +227,21 @@ class ViewCloseService {
         return false;
       }
     }
+    if (!delegate.closeAppAfterLastWindowClosed && effectiveMode == CloseMode.destroy ||
+        delegate.closeAppAfterLastWindowClosed) {
+      _destroyLastWindowIfExist();
+    }
 
     return true;
+  }
+
+  void _destroyLastWindowIfExist() {
+    try {
+      if(!delegate.stayAliveMainWindow) return;
+      ffi.forceCloseView(delegate.mainRealViewId());
+    } catch (_) {
+      // ignore
+    }
   }
 
   // ---------------------------------------------------------------------------

@@ -50,7 +50,7 @@ Future<void> main() async {
       // force anim for init window for example
       mvd.setForceAnimation(
         ViewAnimationType.createWindow,
-        AnimationSettings(duration: Duration(seconds: 1), curve: Curves.linear, fps: 120),
+        AnimationSettings(duration: Duration(milliseconds: 400), curve: Curves.linear, fps: 120),
       );
       // mvd.setForceAnimation(
       //   ViewAnimationType.closeWindow,
@@ -68,8 +68,9 @@ Future<void> main() async {
       fileLogParams: const LogParams(enable: true, sizeKb: 1024 * 10),
       generalParams: MultiPlatformParams(
         animation: ViewAnimationConfig.all(modalFadeInOnOpen: true, modalFadeOutOnClose: true),
-        enableDynamicAnchor: true,
+        enableDynamicAnchor: false,
         closeMode: CloseMode.softCascade,
+        closeAppAfterLastWindowClosed: true,
         menuItems: [
           TaskbarMenuItem(
             title: 'Open new window',
@@ -81,10 +82,8 @@ Future<void> main() async {
       macosParams: MacosPlatformParams(
         // Defaults match example dock behavior; cascade-exit E2E overrides via
         // MVD_E2E_CLOSE_APP_AFTER_LAST / MVD_E2E_SAVE_LAST_WINDOW.
-        closeAppAfterLastWindowClosed: e2eCloseAppAfterLastWindowClosedFromEnvironment(),
         // closeAppAfterLastWindowClosed: true,
-        // saveLastWindowToReopen: e2eSaveLastWindowToReopenFromEnvironment(),
-        saveLastWindowToReopen: false,
+        saveLastWindowToReopen: e2eSaveLastWindowToReopenFromEnvironment(),
         onTerminate: () async {
           // do something before terminate
           // for example soft close instead of destroy
@@ -143,7 +142,7 @@ Future<void> main() async {
       ),
       mainWindowOptions: WindowOptions(
         minimumSize: Size(1000, 700),
-        size: Size(1200, 800),
+        // size: Size(1200, 800),
         alignment: Alignment.center,
         titleBarStyle: TitleBarStyle.normal,
         windowButtonVisibility: true,
@@ -291,7 +290,11 @@ class _MainWindowRootState extends State<MainWindowRoot> with TrayListener {
     }
 
     if (menuItem.key == 'exit_app') {
-      MultiViewDesktop.closeApp();
+      // first step - soft close all windows. Close app if genParams->closeAppAfterLastWindowClosed == true
+      // second - destroy app if genParams->closeAppAfterLastWindowClosed == false and all windows was closed by softClose (res==true)
+      MultiViewDesktop.closeApp().then((res) {
+        if (res) MultiViewDesktop.closeApp(closeMode: CloseMode.destroy);
+      });
     }
   }
 

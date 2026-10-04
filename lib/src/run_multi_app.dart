@@ -137,15 +137,30 @@ class MultiPlatformParams {
   /// Replaced entirely by `MultiViewDesktop.setMenuItems`.
   final List<TaskbarMenuItem> menuItems;
 
+  /// When true, quitting after the last window closes terminates the process.
+  ///
+  /// Is not included if:
+  /// - call `closeApp` with mode `CloseMode.destroy`
+  final bool closeAppAfterLastWindowClosed;
+
   /// Native view animations: open/close fade and/or geometry (position/size).
   /// See [ViewAnimationConfig.openClose], [ViewAnimationConfig.geometry], [ViewAnimationConfig.all].
   final ViewAnimationConfig animation;
 
+  /// Stay alive main window after close. Fully unregister, but hides his instead of close.
+  /// So other plugins that depend by main window work correctly.
+  ///
+  /// Critical. May broke other plugins after main window close and `closeAppAfterLastWindowClosed`.
+  @experimental
+  final bool stayAliveMainWindow;
+
   const MultiPlatformParams({
+    this.closeAppAfterLastWindowClosed = true,
     this.enableDynamicAnchor = false,
     this.closeMode = CloseMode.softCascade,
     this.menuItems = const [],
     this.animation = ViewAnimationConfig.defaults,
+    @experimental this.stayAliveMainWindow = true,
   });
 
   /// Default: dynamic anchor enabled, `CloseMode.softCascade`.
@@ -155,12 +170,6 @@ class MultiPlatformParams {
 
 /// macOS-specific parameters for `MultiAppConfig.macosParams`.
 class MacosPlatformParams {
-  /// When true, quitting after the last window closes terminates the process.
-  ///
-  /// Is not included if:
-  /// - `saveLastWindowToReopen` is true
-  final bool closeAppAfterLastWindowClosed;
-
   /// When true, the last closed window with `closeWindow` or native cross will be hide instead of close and may be restored by tap on app icon
   ///
   /// Is not included if:
@@ -175,12 +184,7 @@ class MacosPlatformParams {
   /// Called when the user clicks the dock icon.
   final Function? onTaskbarTap;
 
-  const MacosPlatformParams({
-    this.closeAppAfterLastWindowClosed = true,
-    this.saveLastWindowToReopen = true,
-    this.onTaskbarTap,
-    this.onTerminate,
-  });
+  const MacosPlatformParams({this.saveLastWindowToReopen = true, this.onTaskbarTap, this.onTerminate});
 
   factory MacosPlatformParams.defaultParams() => MacosPlatformParams(saveLastWindowToReopen: true, onTaskbarTap: null);
 }

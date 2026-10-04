@@ -49,6 +49,8 @@ class MultiViewDesktop {
   /// Only for custom logic or edge cases, may crush base plugin logic.
   int get internalViewId => _realId;
 
+  static MultiViewDesktop get main => MultiViewDesktop.fromId(_manager.realToShiftedId(_manager.mainRealViewId));
+
   /// macOS-only window APIs (Spaces, Mission Control, dock badge).
   MultiViewDesktopMacos get macos => MultiViewDesktopMacos(_realId, _proxies);
 

@@ -11,6 +11,8 @@ class ViewCloseDelegate {
     required this.isLastMacosRootView,
     required this.enableDynamicAnchor,
     required this.mainRealViewId,
+    required this.closeAppAfterLastWindowClosed,
+    required this.stayAliveMainWindow,
   });
 
   final void Function(int viewId) disposeView;
@@ -19,5 +21,7 @@ class ViewCloseDelegate {
   final List<int> Function({int? excludingViewId}) anchorCandidatesExcluding;
   final bool Function(int viewId) isLastMacosRootView;
   final bool enableDynamicAnchor;
+  final bool closeAppAfterLastWindowClosed;
+  final bool stayAliveMainWindow;
   final int Function() mainRealViewId;
 }

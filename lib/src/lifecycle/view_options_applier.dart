@@ -36,14 +36,13 @@ class ViewOptionsApplier {
 
     final defaultColor = opts.backgroundColor ?? Colors.white;
     _ffi.setBackgroundColor(viewId, color: defaultColor);
-
     if (opts.minimumSize != null) {
       _ffi.setMinSize(viewId, size: opts.minimumSize!);
     }
     if (opts.maximumSize != null) {
       _ffi.setMaxSize(viewId, size: opts.maximumSize!);
     }
-    if (opts.maximize == true) {
+    if (opts.maximize == true && !Platform.isWindows) {
       _ffi.maximize(viewId);
     }
     if (opts.title != null) {
