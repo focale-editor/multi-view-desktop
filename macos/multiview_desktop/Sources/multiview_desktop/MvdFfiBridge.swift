@@ -498,13 +498,22 @@ public func mvdShow(_ viewId: Int64) {
     }
 }
 
+@_cdecl("mvd_hide_request")
+public func mvdHideRequest(_ viewId: Int64) {
+    state(viewId).isHideRequestActive = true
+}
+
 @_cdecl("mvd_hide")
 public func mvdHide(_ viewId: Int64) {
-    guard let window = win(viewId) else { return }
-    if impl().windowStates[viewId]?.isPopup == true {
-        impl().hidePopupWindow(window, viewId: viewId)
-    } else {
-        window.orderOut(nil)
+    DispatchQueue.main.async {
+        guard let window = win(viewId) else {
+            return
+        }
+        if impl().windowStates[viewId]?.isPopup == true {
+            impl().hidePopupWindow(window, viewId: viewId)
+        } else {
+            window.orderOut(nil)
+        }
     }
 }
 
@@ -549,8 +558,8 @@ public func mvdIsPreventClose(_ viewId: Int64) -> Int32 {
 
 @_cdecl("mvd_maximize")
 public func mvdMaximize(_ viewId: Int64, _ vertically: Int32) {
-    guard let window = win(viewId), !window.isZoomed else { return }
-    window.zoom(nil)
+    guard let window = win(viewId) else { return }
+    impl().zoomWindow(window)
 }
 
 @_cdecl("mvd_unmaximize")

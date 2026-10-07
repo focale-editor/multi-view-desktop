@@ -5,6 +5,8 @@ import 'package:multiview_desktop/multiview_desktop.dart';
 ///
 /// Native FFI proxies live on [ViewManagerProxies] (`globalRootState.proxies`).
 abstract class ViewsManager {
+  int get mainRealViewId;
+
   int realToShiftedId(int viewId);
 
   int shiftedToRealId(int viewId);

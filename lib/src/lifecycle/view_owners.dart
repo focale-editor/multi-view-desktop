@@ -29,7 +29,12 @@ class WindowOwner extends ViewOwnerBase {
     onCreated(viewId);
     trackUntilFirstFrame(viewId, parentId: null, isDialog: false);
     host.animationController.stageSoftOverride(viewId, ViewAnimationType.createWindow, animation);
-    await showAfterFirstFrameOrWaitCompleteShow(viewId, options?.showOnInit ?? true, options?.fullScreen ?? false);
+    await showAfterFirstFrameOrWaitCompleteShow(
+      viewId,
+      options?.showOnInit ?? true,
+      options?.fullScreen ?? false,
+      options?.maximize ?? false,
+    );
     return viewId;
   }
 
@@ -66,7 +71,12 @@ class ChildWindowOwner extends ViewOwnerBase {
     onCreated(viewId);
     trackUntilFirstFrame(viewId, parentId: parentId, isDialog: false);
     host.animationController.stageSoftOverride(viewId, ViewAnimationType.createWindow, animation);
-    await showAfterFirstFrameOrWaitCompleteShow(viewId, options?.showOnInit ?? true, options?.fullScreen ?? false);
+    await showAfterFirstFrameOrWaitCompleteShow(
+      viewId,
+      options?.showOnInit ?? true,
+      options?.fullScreen ?? false,
+      options?.maximize ?? false,
+    );
     return viewId;
   }
 
@@ -164,7 +174,7 @@ class DialogOwner extends ViewOwnerBase {
       }
     } else {
       host.animationController.stageSoftOverride(viewId, ViewAnimationType.createDialog, animation);
-      await showAfterFirstFrameOrWaitCompleteShow(viewId, showOnInit, false);
+      await showAfterFirstFrameOrWaitCompleteShow(viewId, showOnInit, false, opts.maximize ?? false);
     }
 
     completers[modalFinishedToken]?.complete();
@@ -214,6 +224,7 @@ class ModelessDialogOwner extends ViewOwnerBase {
       alwaysOnTop: base.alwaysOnTop,
       showOnInit: base.showOnInit,
       shellOverrides: base.shellOverrides,
+      maximize: base.maximize,
     );
   }
 }
@@ -252,6 +263,7 @@ class ModalDialogOwner extends ViewOwnerBase {
       alwaysOnTop: base.alwaysOnTop,
       showOnInit: base.showOnInit,
       shellOverrides: base.shellOverrides,
+      maximize: base.maximize,
     );
   }
 }

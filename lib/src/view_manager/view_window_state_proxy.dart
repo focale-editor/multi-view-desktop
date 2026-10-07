@@ -17,8 +17,7 @@ class ViewWindowStateProxy extends ViewNativeProxy {
     call(viewId, () => ffi.hide(viewId), dialogSupports: true);
   }
 
-  bool isVisible(int viewId) =>
-      call(viewId, () => ffi.isVisible(viewId), dialogSupports: true) ?? true;
+  bool isVisible(int viewId) => call(viewId, () => ffi.isVisible(viewId), dialogSupports: true) ?? true;
 
   void focus(int viewId) {
     call(viewId, () => ffi.focus(viewId), dialogSupports: true);
@@ -28,8 +27,7 @@ class ViewWindowStateProxy extends ViewNativeProxy {
     call(viewId, () => ffi.blur(viewId), dialogSupports: true);
   }
 
-  bool isFocused(int viewId) =>
-      call(viewId, () => ffi.isFocused(viewId), dialogSupports: true) ?? true;
+  bool isFocused(int viewId) => call(viewId, () => ffi.isFocused(viewId), dialogSupports: true) ?? true;
 
   void maximize(int viewId, {bool vertically = false}) {
     call(viewId, () => ffi.maximize(viewId, vertically: vertically));
@@ -57,15 +55,13 @@ class ViewWindowStateProxy extends ViewNativeProxy {
     call(viewId, () => ffi.setFullScreen(viewId, isFullScreen: isFullScreen));
   }
 
-  bool isResizable(int viewId) =>
-      call(viewId, () => ffi.isResizable(viewId), dialogSupports: true) ?? true;
+  bool isResizable(int viewId) => call(viewId, () => ffi.isResizable(viewId), dialogSupports: true) ?? true;
 
   void setResizable(int viewId, bool isResizable) {
     call(viewId, () => ffi.setResizable(viewId, isResizable), dialogSupports: true);
   }
 
-  bool isMovable(int viewId) =>
-      call(viewId, () => ffi.isMovable(viewId), dialogSupports: true) ?? true;
+  bool isMovable(int viewId) => call(viewId, () => ffi.isMovable(viewId), dialogSupports: true) ?? true;
 
   void setMovable(int viewId, bool isMovable) {
     call(viewId, () => ffi.setMovable(viewId, isMovable), dialogSupports: true);
@@ -83,22 +79,16 @@ class ViewWindowStateProxy extends ViewNativeProxy {
     call(viewId, () => ffi.setMaximizable(viewId, isMaximizable));
   }
 
-  bool isClosable(int viewId) =>
-      call(viewId, () => ffi.isClosable(viewId), dialogSupports: true) ?? true;
+  bool isClosable(int viewId) => call(viewId, () => ffi.isClosable(viewId), dialogSupports: true) ?? true;
 
   void setClosable(int viewId, bool isClosable) {
     call(viewId, () => ffi.setClosable(viewId, isClosable), dialogSupports: true);
   }
 
-  bool isAlwaysOnTop(int viewId) =>
-      call(viewId, () => ffi.isAlwaysOnTop(viewId), dialogSupports: true) ?? false;
+  bool isAlwaysOnTop(int viewId) => call(viewId, () => ffi.isAlwaysOnTop(viewId), dialogSupports: true) ?? false;
 
   void setAlwaysOnTop(int viewId, bool isAlwaysOnTop) {
-    call(
-      viewId,
-      () => ffi.setAlwaysOnTop(viewId, isAlwaysOnTop: isAlwaysOnTop),
-      dialogSupports: true,
-    );
+    call(viewId, () => ffi.setAlwaysOnTop(viewId, isAlwaysOnTop: isAlwaysOnTop), dialogSupports: true);
   }
 
   bool isPreventClose(int viewId) => call(viewId, () => ffi.isPreventClose(viewId)) ?? false;

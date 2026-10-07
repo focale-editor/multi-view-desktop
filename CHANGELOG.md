@@ -1,3 +1,21 @@
+## 2.0.2+focale.1
+
+- Merge upstream changes through `54aa6f4`, including versions 2.0.1 and 2.0.2.
+- Preserve Focale's app-shell capture optimization, Linux lifecycle and modal focus fixes, and Windows view creation accessibility guard.
+
+## 2.0.2
+
+- Fix: MacOS init window show fix.
+- Fix: animation override take fix.
+
+## 2.0.1
+
+- Added param `maximize` on init `WindowOptions` and `DialogOptions`
+- Added `mainWindowOptions` only for init window.
+- Fix: `showOnInit: false` on the startup window. The initial window stays hidden until `completeShow()`, same as windows opened later
+- Breaking. `closeAppAfterLastWindowClosed` moved from `MacosPlatformParams` to `MultiPlatformParams` (`generalParams`).
+- [Check README] Linux runner update
+
 ## 2.0.0+focale.1
 
 Focale fork of 2.0.0. Upstream structure, plus:
@@ -21,6 +39,7 @@ Focale fork of 2.0.0. Upstream structure, plus:
 - Optional file logger (`MultiAppConfig.fileLogParams` / `LogParams`)
 - `MultiViewDesktop.screen` for connected displays. Physical window bounds
   (`getPhysicalBounds` / `setPhysicalBounds`) for mixed-DPI layouts
+- `EnableDynamicAnchor` now is false by default.
 
 ## 1.2.2
 

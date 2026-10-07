@@ -477,7 +477,7 @@ class _HomePageState extends State<HomePage> with WindowListener {
                         // alwaysOnTop: true,
                         maximumSize: const Size(10000, 10000),
                       ),
-                      animation: AnimationSettings(duration: Duration(milliseconds: 250)),
+                      animation: AnimationSettings(duration: Duration(milliseconds: 1000)),
                     );
                   },
                 ),
@@ -562,7 +562,7 @@ class _HomePageState extends State<HomePage> with WindowListener {
                   ),
                   _tile(
                     'circlesDialog',
-                    subtitle: 'Native dialog 1000×640, 400 animated translucent circles',
+                    subtitle: 'Native dialog 1000x640, 400 animated translucent circles',
                     onTap: () async {
                       final res = await openDialog<String?>(
                         (ctx, viewId) => const CirclesScreen(),
@@ -654,7 +654,9 @@ class _HomePageState extends State<HomePage> with WindowListener {
                     Padding(
                       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                       child: _AlignmentGrid(
-                        onSelected: (alignment) => MultiViewDesktop.of(context).setAlignment(alignment),
+                        onSelected: (alignment) => MultiViewDesktop.of(
+                          context,
+                        ).setAlignment(alignment, animation: AnimationSettings(duration: Duration(milliseconds: 300))),
                       ),
                     ),
                   ],

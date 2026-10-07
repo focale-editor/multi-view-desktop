@@ -79,7 +79,12 @@ abstract class ViewOwnerBase {
     await host.animationController.animateOpen(viewId, type: openCloseType, policy: fade);
   }
 
-  Future<void> showAfterFirstFrameOrWaitCompleteShow(int viewId, bool showOnInit, bool isFullScreen) async {
+  Future<void> showAfterFirstFrameOrWaitCompleteShow(
+    int viewId,
+    bool showOnInit,
+    bool isFullScreen,
+    bool maximize,
+  ) async {
     if (!showOnInit) {
       await host.markAsShowLaterAndWait(viewId);
     }
@@ -93,10 +98,16 @@ abstract class ViewOwnerBase {
       }
     }
 
+    if (!isFullScreen && maximize) {
+      if (Platform.isWindows || Platform.isMacOS) {
+        host.proxies.state.maximize(viewId);
+      }
+    }
+
     final res = showWithFadeIn(viewId);
 
-    if (isFullScreen) {
-      if (!Platform.isLinux) {
+    if (Platform.isMacOS || Platform.isWindows) {
+      if (isFullScreen) {
         host.proxies.state.setFullScreen(viewId, isFullScreen);
       }
     }

@@ -128,21 +128,7 @@ Edit `linux/runner/my_application.cc`.
  #include "flutter/generated_plugin_registrant.h"
 ```
 
-2. Add a `first-frame` callback before `my_application_activate`. The primary window must stay hidden until Flutter paints its first frame; otherwise users see a blank window. Secondary windows opened by the runner follow the same pattern automatically.
-
-```diff
- G_DEFINE_TYPE(MyApplication, my_application, GTK_TYPE_APPLICATION)
-
-+// Called when first Flutter frame received.
-+static void first_frame_cb(MyApplication* self, FlView* view) {
-+  gtk_widget_show(gtk_widget_get_toplevel(GTK_WIDGET(view)));
-+}
-+
- // Implements GApplication::activate.
- static void my_application_activate(GApplication* application) {
-```
-
-3. In `my_application_activate`, call `multiview_desktop_linux_runner_install` before creating any window, call `multiview_desktop_linux_runner_prepare_dart_project` right after `fl_dart_project_new`, and call `multiview_desktop_linux_runner_register_primary` after `fl_register_plugins`. Connect `first_frame_cb` to the view's `first-frame` signal and do **not** call `gtk_widget_show` on the window itself; the callback shows the top-level widget once rendering starts.
+2. In `my_application_activate`, call `multiview_desktop_linux_runner_install` before creating any window, call `multiview_desktop_linux_runner_prepare_dart_project` right after `fl_dart_project_new`, and call `multiview_desktop_linux_runner_register_primary` after `fl_register_plugins`. Do **not** call `gtk_widget_show` on the `GtkWindow`, and do **not** connect a `first-frame` callback that shows it. The primary window stays unmapped until the library shows it (`showOnInit` / `completeShow`).
 
 ```diff
  static void my_application_activate(GApplication* application) {
@@ -168,8 +154,9 @@ Edit `linux/runner/my_application.cc`.
    gtk_widget_show(GTK_WIDGET(view));
    gtk_container_add(GTK_CONTAINER(window), GTK_WIDGET(view));
 
-   g_signal_connect_swapped(view, "first-frame", G_CALLBACK(first_frame_cb),
-                            self);
+-  // Show the window when Flutter renders.
+-  g_signal_connect_swapped(view, "first-frame", G_CALLBACK(first_frame_cb),
+-                           self);
    gtk_widget_realize(GTK_WIDGET(view));
 
    fl_register_plugins(FL_PLUGIN_REGISTRY(view));
@@ -181,7 +168,7 @@ Edit `linux/runner/my_application.cc`.
  }
 ```
 
-4. In `my_application_new`, create the `GtkApplication` with the default `GApplication` flags. Do **not** pass `G_APPLICATION_NON_UNIQUE`: the app must register its D-Bus name (`application-id`) so taskbar / dock context menu items work.
+3. In `my_application_new`, create the `GtkApplication` with the default `GApplication` flags. Do **not** pass `G_APPLICATION_NON_UNIQUE`: the app must register its D-Bus name (`application-id`) so taskbar / dock context menu items work.
 
 ```diff
    g_set_prgname(APPLICATION_ID);
@@ -195,7 +182,7 @@ Edit `linux/runner/my_application.cc`.
 
 What each call does:
 
-- `first_frame_cb`: shows the top-level `GtkWindow` after Flutter renders the first frame. Connect it with `g_signal_connect_swapped(view, "first-frame", G_CALLBACK(first_frame_cb), self)` and call `gtk_widget_realize` on the view before registering plugins.
+- The primary `GtkWindow` stays unmapped. Call `gtk_widget_realize` on the view, then `multiview_desktop_linux_runner_register_primary`. The library maps the window from `showOnInit` / `completeShow`.
 - `multiview_desktop_linux_runner_install`: hooks the `GtkApplication` so that new GTK windows can be created when Dart calls `openWindow`. Must be the very first call in `activate`.
 - `multiview_desktop_linux_runner_prepare_dart_project`: fixes asset, ICU, and AOT paths when launching from the build directory. Required so that secondary views can locate the bundle.
 - `multiview_desktop_linux_runner_register_primary`: registers the primary window and view with the plugin so that per-window APIs work on the main window.
@@ -212,7 +199,7 @@ Set items via `MultiPlatformParams.menuItems` in `runMultiApp`, or replace them 
 
 Requirements:
 
-- Default `GApplication` flags in `my_application_new` (step 4 above). `G_APPLICATION_NON_UNIQUE` prevents D-Bus registration and breaks the menu.
+- Default `GApplication` flags in `my_application_new` (step 3 above). `G_APPLICATION_NON_UNIQUE` prevents D-Bus registration and breaks the menu.
 - `g_set_prgname(APPLICATION_ID)` so the running app matches the generated `.desktop` entry.
 
 The plugin registers `GApplication` actions and writes `~/.local/share/applications/<application-id>.desktop` with `DBusActivatable=true`. GNOME and other freedesktop shells that expose `.desktop` Actions in the dock context menu pick up the items after the app starts (restart the app once if the menu does not appear immediately).
@@ -586,6 +573,7 @@ void main() {
       generalParams: MultiPlatformParams(
         closeMode: CloseMode.softCascade,
         enableDynamicAnchor: true,
+        closeAppAfterLastWindowClosed: true,
         animation: ViewAnimationConfig.defaults,
         menuItems: [
           TaskbarMenuItem(
@@ -596,7 +584,6 @@ void main() {
       ),
       macosParams: MacosPlatformParams(
         saveLastWindowToReopen: true,
-        closeAppAfterLastWindowClosed: true,
         onTerminate: () async {
           final allClosed = await MultiViewDesktop.closeApp(closeMode: CloseMode.softCascade);
           return allClosed;
@@ -898,6 +885,7 @@ await openDialog(
 
 Notes:
 
+- The startup window follows the same flag (`mainWindowOptions`, or `globalWindowOptions` when main options are omitted).
 - Call `completeShow()`, not `show()`. `show()` is the normal visibility API for an already-shown-or-hidden window; `completeShow` finishes the create pipeline when `showOnInit` was `false`.
 - Early `completeShow` before the create path registers the waiter is buffered and applied when create reaches the wait (safe for post-frame / delayed callbacks).
 - For **modal** dialogs, `completeShow` gates the native attach step (`beginSheet` on macOS / equivalent on other platforms), not a plain `show`.
@@ -995,7 +983,8 @@ These fields exist on both `WindowOptions` and `DialogOptions` with the same mea
 | `windowButtonVisibility` | `bool?` | Show or hide traffic-light / caption buttons when the bar is hidden. On dialogs, minimize and maximize stay disabled regardless of this flag. |
 | `title` | `String?` | Native window title. |
 | `alwaysOnTop` | `bool?` | Keep the view above other application windows. |
-| `showOnInit` | `bool?` | Show immediately after creation (default `true`). When `false`, call `completeShow()` to reveal. See [Deferred show](#deferred-show-showoninit). |
+| `maximize` | `bool?` | Start maximized. For windows, full-screen takes priority over maximize. |
+| `showOnInit` | `bool?` | Show immediately after creation (default `true`). When `false`, call `completeShow()` to reveal. Applies to the startup window as well. See [Deferred show](#deferred-show-showoninit). |
 | `shellOverrides` | `ViewShellOverrides?` | Per-view entry shell (theme, locale, router). See [Entry shell (AppShell)](#entry-shell-appshell). |
 
 Built-in default content size for **windows** when `size` is omitted: 800x600.
@@ -1046,7 +1035,7 @@ Dialogs always differ from regular windows:
 
 - Require `parentContext` from a **window** (not from another dialog).
 - Close when the parent window closes, regardless of `CloseMode`.
-- No full-screen, minimize, or maximize (native title bar exposes close only).
+- No full-screen or minimize. The title bar exposes close only. `maximize` still starts the dialog maximized.
 - Hidden from the taskbar and Mission Control on creation.
 - Initial placement is relative to the parent; see the platform table in [Open a dialog](#open-a-dialog).
 
@@ -1519,6 +1508,7 @@ runMultiApp(
     generalParams: MultiPlatformParams(
       closeMode: CloseMode.softCascade,
       enableDynamicAnchor: true,
+      closeAppAfterLastWindowClosed: true,
       animation: ViewAnimationConfig.defaults,
       menuItems: [
         TaskbarMenuItem(
@@ -1529,7 +1519,6 @@ runMultiApp(
     ),
     macosParams: MacosPlatformParams(
       saveLastWindowToReopen: true,
-      closeAppAfterLastWindowClosed: true,
       onTaskbarTap: () {
         // Dock icon clicked while the app is running.
       },
@@ -1555,9 +1544,9 @@ runMultiApp(
 
 `animation`: native open/close fade and optional geometry animation. See [Animations](#animations).
 
-`saveLastWindowToReopen` (macOS): when the user closes all windows and the app stays in the dock, re-opening from the dock icon restores the last window. Ignored when using `closeApp`, `onTerminate`, or `CloseMode.destroy`.
+`closeAppAfterLastWindowClosed`: when `true`, quitting after the last window closes terminates the process. Default: `true`. On macOS, not applied when `saveLastWindowToReopen` is `true`.
 
-`closeAppAfterLastWindowClosed` (macOS): when `true`, quitting after the last window closes terminates the process. Not applied when `saveLastWindowToReopen` is `true`.
+`saveLastWindowToReopen` (macOS): when the user closes all windows and the app stays in the dock, re-opening from the dock icon restores the last window. Ignored when using `closeApp`, `onTerminate`, or `CloseMode.destroy`.
 
 `onTerminate` (macOS): async callback invoked on Cmd+Q and Quit from the menu. Return `true` to quit the process, `false` to cancel. Requires `applicationShouldTerminate` in `AppDelegate` (see [macOS setup](#macos-setup)).
 
@@ -2316,13 +2305,13 @@ Cross-platform parameters.
 
 `animation` - native open/close fade and optional geometry animation. Default: `ViewAnimationConfig.defaults`. See [Animations](#animations).
 
+`closeAppAfterLastWindowClosed` - terminate the process after the last window closes. Default: `true`. On macOS, not applied when `saveLastWindowToReopen` is `true`.
+
 ##### macosParams -> MacosPlatformParams
 
 macOS-specific parameters.
 
 `saveLastWindowToReopen` - restore the last window when the dock icon is clicked after all windows close. Default: `true`. Ignored for `closeApp`, `onTerminate`, and `CloseMode.destroy`.
-
-`closeAppAfterLastWindowClosed` - terminate the process after the last window closes. Default: `true`. Not applied when `saveLastWindowToReopen` is `true`.
 
 `onTerminate` - async callback on Cmd+Q and Quit from the menu. Return `true` to terminate, `false` to cancel. Default: `null` (quit immediately). Requires `applicationShouldTerminate` in `AppDelegate`.
 

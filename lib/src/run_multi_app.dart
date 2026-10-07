@@ -52,6 +52,9 @@ class MultiAppConfig {
   /// passed to `openWindow` override these fields.
   final WindowOptions globalWindowOptions;
 
+  /// Main window options.
+  final WindowOptions mainWindowOptions;
+
   /// Default `DialogOptions` merged into every `openDialog` call.
   final DialogOptions globalDialogOptions;
 
@@ -72,29 +75,40 @@ class MultiAppConfig {
     required this.generalParams,
     required this.macosParams,
     WindowOptions? globalWindowOptions,
+    WindowOptions? mainWindowOptions,
     DialogOptions? globalDialogOptions,
     this.observers = const [],
     this.logParams = const LogParams(),
-  }) : globalWindowOptions = globalWindowOptions ?? WindowOptions(),
+  }) : mainWindowOptions = mainWindowOptions ?? globalWindowOptions ?? WindowOptions(),
+       globalWindowOptions = globalWindowOptions ?? WindowOptions(),
        globalDialogOptions = globalDialogOptions ?? DialogOptions();
 
   /// Creates configuration for `runMultiApp`.
   ///
   /// `generalParams` controls anchor promotion and `CloseMode`.
+  ///
   /// `macosParams` controls macOS dock and last-window behavior.
-  /// `globalWindowOptions` apply to the main window at startup and merge into
+  ///
+  /// `mainWindowOptions` apply to main window.
+  ///
+  /// `globalWindowOptions` apply to the main window at startup if `mainWindowOptions` is `null`and merge into
   /// each `openWindow` call.
+  ///
   /// `globalDialogOptions` merge into each `openDialog` call.
+  ///
   /// `observers` receive passive lifecycle callbacks.
+  ///
   /// `logParams` writes package diagnostics to a cache-directory file.
   factory MultiAppConfig({
     MultiPlatformParams? generalParams,
     MacosPlatformParams? macosParams,
+    WindowOptions? mainWindowOptions,
     WindowOptions? globalWindowOptions,
     DialogOptions? globalDialogOptions,
     List<WindowObserver>? observers,
     LogParams fileLogParams = const LogParams(),
   }) => MultiAppConfig._(
+    mainWindowOptions: mainWindowOptions,
     globalWindowOptions: globalWindowOptions,
     globalDialogOptions: globalDialogOptions,
     generalParams: generalParams ?? MultiPlatformParams.defaultParams(),
@@ -123,15 +137,30 @@ class MultiPlatformParams {
   /// Replaced entirely by `MultiViewDesktop.setMenuItems`.
   final List<TaskbarMenuItem> menuItems;
 
+  /// When true, quitting after the last window closes terminates the process.
+  ///
+  /// Is not included if:
+  /// - call `closeApp` with mode `CloseMode.destroy`
+  final bool closeAppAfterLastWindowClosed;
+
   /// Native view animations: open/close fade and/or geometry (position/size).
   /// See [ViewAnimationConfig.openClose], [ViewAnimationConfig.geometry], [ViewAnimationConfig.all].
   final ViewAnimationConfig animation;
 
+  /// Stay alive main window after close. Fully unregister, but hides his instead of close.
+  /// So other plugins that depend by main window work correctly.
+  ///
+  /// Critical. May broke other plugins after main window close and `closeAppAfterLastWindowClosed`.
+  @experimental
+  final bool stayAliveMainWindow;
+
   const MultiPlatformParams({
+    this.closeAppAfterLastWindowClosed = true,
     this.enableDynamicAnchor = false,
     this.closeMode = CloseMode.softCascade,
     this.menuItems = const [],
     this.animation = ViewAnimationConfig.defaults,
+    @experimental this.stayAliveMainWindow = true,
   });
 
   /// Default: dynamic anchor enabled, `CloseMode.softCascade`.
@@ -141,12 +170,6 @@ class MultiPlatformParams {
 
 /// macOS-specific parameters for `MultiAppConfig.macosParams`.
 class MacosPlatformParams {
-  /// When true, quitting after the last window closes terminates the process.
-  ///
-  /// Is not included if:
-  /// - `saveLastWindowToReopen` is true
-  final bool closeAppAfterLastWindowClosed;
-
   /// When true, the last closed window with `closeWindow` or native cross will be hide instead of close and may be restored by tap on app icon
   ///
   /// Is not included if:
@@ -161,12 +184,7 @@ class MacosPlatformParams {
   /// Called when the user clicks the dock icon.
   final Function? onTaskbarTap;
 
-  const MacosPlatformParams({
-    this.closeAppAfterLastWindowClosed = true,
-    this.saveLastWindowToReopen = true,
-    this.onTaskbarTap,
-    this.onTerminate,
-  });
+  const MacosPlatformParams({this.saveLastWindowToReopen = true, this.onTaskbarTap, this.onTerminate});
 
   factory MacosPlatformParams.defaultParams() => MacosPlatformParams(saveLastWindowToReopen: true, onTaskbarTap: null);
 }
@@ -218,13 +236,7 @@ Future<int> openWindow(
   WindowOptions? options,
   BuildContext? parentContext,
   AnimationSettings? animation,
-}) =>
-    MultiViewDesktop.addWindow(
-      childBuilder,
-      options: options,
-      parent: parentContext,
-      animation: animation,
-    );
+}) => MultiViewDesktop.addWindow(childBuilder, options: options, parent: parentContext, animation: animation);
 
 /// Opens a dialog window tied to `parentContext`.
 ///
@@ -255,13 +267,7 @@ Future<T?> openDialog<T>(
   required BuildContext parentContext,
   DialogOptions? options,
   AnimationSettings? animation,
-}) =>
-    MultiViewDesktop.addDialog<T>(
-      childBuilder,
-      parentContext: parentContext,
-      options: options,
-      animation: animation,
-    );
+}) => MultiViewDesktop.addDialog<T>(childBuilder, parentContext: parentContext, options: options, animation: animation);
 
 class DialogEntry<T> {
   final int id;
@@ -299,10 +305,9 @@ Future<DialogEntry<T?>> openDialogEntry<T>(
   required BuildContext parentContext,
   DialogOptions? options,
   AnimationSettings? animation,
-}) =>
-    MultiViewDesktop.addDialogEntry<T>(
-      childBuilder,
-      parentContext: parentContext,
-      options: options,
-      animation: animation,
-    );
+}) => MultiViewDesktop.addDialogEntry<T>(
+  childBuilder,
+  parentContext: parentContext,
+  options: options,
+  animation: animation,
+);

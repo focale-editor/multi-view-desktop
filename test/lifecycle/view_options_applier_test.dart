@@ -37,15 +37,15 @@ void main() {
       expect(ffi.hasCall('setMinSize:1:50.0x50.0'), isTrue);
       expect(ffi.hasCall('setMaxSize:1:400.0x400.0'), isTrue);
       expect(ffi.hasCall('setTitle:1:Hello'), isTrue);
-      // Title bar flags belong to createWindow; fullscreen follows first frame.
-      expect(ffi.hasCall('setTitleBarStyle:1:hidden'), isFalse);
+      // Title bar flags are reapplied after creation; fullscreen follows first frame.
+      expect(ffi.hasCall('setTitleBarStyle:1:hidden'), isTrue);
       expect(ffi.hasCall('setAlwaysOnTop:1:true'), isTrue);
       expect(ffi.hasCall('setFullScreen:1:false'), isFalse);
     });
 
-    test('applyWindow with only defaults still applies default alignment', () {
+    test('applyWindow with only defaults applies alignment and background', () {
       applier.applyWindow(1, WindowOptions());
-      expect(ffi.calls, ['setAlignment:1:0.0,0.0']);
+      expect(ffi.calls, ['setAlignment:1:0.0,0.0', 'setBackgroundColor:1']);
     });
 
     test('applyDialog maps dialog options', () {

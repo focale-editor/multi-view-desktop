@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:developer';
 import 'dart:io';
 
@@ -22,8 +23,11 @@ Future<void> initSystemTray() async {
   // create context menu
   final Menu menu = Menu(
     items: [
-      MenuItem(label: 'Hide', key: 'hide_window'),
-      MenuItem(label: 'Show', key: 'show_window'),
+      if (MultiViewDesktop.allWindowViewIds.isNotEmpty) ...[
+        MenuItem(label: 'Hide first', key: 'hide_window'),
+        MenuItem(label: 'Show first', key: 'show_window'),
+      ],
+      if (MultiViewDesktop.allWindowViewIds.isEmpty) MenuItem(label: 'Open', key: 'open_window'),
       MenuItem(label: 'Exit', key: 'exit_app'),
     ],
   );
@@ -41,6 +45,17 @@ Future<void> main() async {
 
   runMultiApp(
     home: (globalScopeContext, id) {
+      final mvd = MultiViewDesktop.fromId(id);
+      WidgetsBinding.instance.endOfFrame.then((_) => mvd.completeShow());
+      // force anim for init window for example
+      mvd.setForceAnimation(
+        ViewAnimationType.createWindow,
+        AnimationSettings(duration: Duration(milliseconds: 400), curve: Curves.linear, fps: 120),
+      );
+      // mvd.setForceAnimation(
+      //   ViewAnimationType.closeWindow,
+      //   AnimationSettings(duration: Duration(seconds: 1), curve: Curves.linear, fps: 120),
+      // );
       // E2eHost must sit *inside* MaterialApp (see MainWindowRoot) so overlay /
       // MaterialLocalizations work for primary-window RPC.
       return MainWindowRoot(e2eStore: e2eEnabledFromEnvironment() ? e2eStore : null);
@@ -52,9 +67,10 @@ Future<void> main() async {
     config: MultiAppConfig(
       fileLogParams: const LogParams(enable: true, sizeKb: 1024 * 10),
       generalParams: MultiPlatformParams(
-        animation: ViewAnimationConfig.all(modalFadeInOnOpen: true, modalFadeOutOnClose:  true),
-        enableDynamicAnchor: true,
+        animation: ViewAnimationConfig.all(modalFadeInOnOpen: true, modalFadeOutOnClose: true),
+        enableDynamicAnchor: false,
         closeMode: CloseMode.softCascade,
+        closeAppAfterLastWindowClosed: true,
         menuItems: [
           TaskbarMenuItem(
             title: 'Open new window',
@@ -66,7 +82,6 @@ Future<void> main() async {
       macosParams: MacosPlatformParams(
         // Defaults match example dock behavior; cascade-exit E2E overrides via
         // MVD_E2E_CLOSE_APP_AFTER_LAST / MVD_E2E_SAVE_LAST_WINDOW.
-        closeAppAfterLastWindowClosed: e2eCloseAppAfterLastWindowClosedFromEnvironment(),
         saveLastWindowToReopen: e2eSaveLastWindowToReopenFromEnvironment(),
         onTerminate: () async {
           // do something before terminate
@@ -114,11 +129,25 @@ Future<void> main() async {
       ),
       globalWindowOptions: WindowOptions(
         minimumSize: Size(1000, 700),
-        maximumSize: Size(1400, 900),
+        // maximumSize: Size(1400, 900),
         size: Size(1000, 700),
         alignment: Alignment.center,
         titleBarStyle: TitleBarStyle.normal,
         windowButtonVisibility: true,
+        showOnInit: true,
+        fullScreen: false,
+        title: 'Window N...',
+        backgroundColor: Colors.transparent,
+      ),
+      mainWindowOptions: WindowOptions(
+        minimumSize: Size(1000, 700),
+        size: Size(1200, 800),
+        alignment: Alignment.center,
+        titleBarStyle: TitleBarStyle.normal,
+        windowButtonVisibility: true,
+        maximize: false,
+        showOnInit: false,
+        fullScreen: false,
         title: 'Window 1',
         backgroundColor: Colors.transparent,
       ),
@@ -132,11 +161,13 @@ class AppWindowObserver extends WindowObserver {
   @override
   void onWindowOpened(int viewId, {int? parentViewId}) {
     log('window $viewId opened, parent $parentViewId', name: 'MVD');
+    initSystemTray();
   }
 
   @override
   void onWindowClosed(int viewId) {
     log('window $viewId closed', name: 'MVD');
+    initSystemTray();
   }
 
   @override
@@ -208,14 +239,14 @@ class _MainWindowRootState extends State<MainWindowRoot> with TrayListener {
       sharedConfig.isHideAppFromTaskbar = MultiViewDesktop.isHideAppFromTaskbar();
       sharedConfig.closeMode = MultiViewDesktop.getCloseMode();
       sharedConfig.anchorId = MultiViewDesktop.getAnchorId();
-      await initSystemTray();
+
       trayManager.addListener(this);
     });
   }
 
   @override
   void dispose() {
-    trayManager.removeListener(this);
+    // trayManager.removeListener(this);
 
     themeConfig.removeListener(_onThemeChanged);
     super.dispose();
@@ -243,13 +274,26 @@ class _MainWindowRootState extends State<MainWindowRoot> with TrayListener {
 
   @override
   void onTrayMenuItemClick(MenuItem menuItem) {
-    final mvd = MultiViewDesktop.of(context);
-    if (menuItem.key == 'show_window') {
-      mvd.show();
-    } else if (menuItem.key == 'exit_app') {
-      MultiViewDesktop.closeApp();
-    } else if (menuItem.key == 'hide_window') {
-      mvd.hide();
+    final allViews = MultiViewDesktop.allWindowViewIds;
+    if (allViews.isNotEmpty) {
+      final mvd = MultiViewDesktop.fromId(MultiViewDesktop.allWindowViewIds.first);
+      if (menuItem.key == 'show_window') {
+        mvd.show();
+      }
+      if (menuItem.key == 'hide_window') {
+        mvd.hide();
+      }
+    }
+    if (menuItem.key == 'open_window' && allViews.isEmpty) {
+      openWindow((ctx, id) => HomePage());
+    }
+
+    if (menuItem.key == 'exit_app') {
+      // first step - soft close all windows. Close app if genParams->closeAppAfterLastWindowClosed == true
+      // second - destroy app if genParams->closeAppAfterLastWindowClosed == false and all windows was closed by softClose (res==true)
+      MultiViewDesktop.closeApp().then((res) {
+        if (res) MultiViewDesktop.closeApp(closeMode: CloseMode.destroy);
+      });
     }
   }
 

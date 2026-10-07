@@ -33,10 +33,8 @@ class InstantViewAnimator extends ViewAnimator {
 
 /// Avoids [ScreenRetriever] in unit tests.
 class FakeWindowPositionCalculator extends WindowPositionCalculator {
-  FakeWindowPositionCalculator({
-    this.byParentResult = const Offset(40, 60),
-    this.byDisplayResult = Offset.zero,
-  }) : super(resolveDisplay: () => throw StateError('FakeWindowPositionCalculator has no display'));
+  FakeWindowPositionCalculator({this.byParentResult = const Offset(40, 60), this.byDisplayResult = Offset.zero})
+    : super(resolveDisplay: () => throw StateError('FakeWindowPositionCalculator has no display'));
 
   Offset byParentResult;
   Offset byDisplayResult;
@@ -50,11 +48,7 @@ class FakeWindowPositionCalculator extends WindowPositionCalculator {
   }
 
   @override
-  Offset calcWindowPositionByParent(
-    Alignment alignment, {
-    required Size windowSize,
-    required Rect parentBounds,
-  }) {
+  Offset calcWindowPositionByParent(Alignment alignment, {required Size windowSize, required Rect parentBounds}) {
     byParentCalls.add((alignment: alignment, windowSize: windowSize, parentBounds: parentBounds));
     return byParentResult;
   }
@@ -94,10 +88,7 @@ class LifecycleTestHarness {
     }
 
     final animator = InstantViewAnimator();
-    final animationController = ViewAnimationController(
-      config: animation,
-      animator: animator,
-    );
+    final animationController = ViewAnimationController(config: animation, animator: animator);
     host = ViewNativeHost(ffi: ffi, invoke: invoke, registry: registry);
     proxies = ViewManagerProxies(
       host,
@@ -114,10 +105,13 @@ class LifecycleTestHarness {
         registry.popups.remove(id);
       },
       invoke: invoke,
-      anchorCandidatesExcluding: anchorCandidates ??
-          ({int? excludingViewId}) => registry.rootWindowIds(excludingId: excludingViewId),
+      anchorCandidatesExcluding:
+          anchorCandidates ?? ({int? excludingViewId}) => registry.rootWindowIds(excludingId: excludingViewId),
       isLastMacosRootView: isLastMacosRootView ?? (_) => false,
       enableDynamicAnchor: enableDynamicAnchor,
+      mainRealViewId: () => 0,
+      closeAppAfterLastWindowClosed: true,
+      stayAliveMainWindow: true,
     );
 
     lifecycle = LifecycleViewsController(
@@ -136,8 +130,7 @@ class LifecycleTestHarness {
         );
       },
       hasPendingDialogCreate: hasPendingDialogCreate ?? (parentId) => pendingDialogParents.contains(parentId),
-      hasModalDialog: (parentId) =>
-          registry.dialogs.values.any((d) => d.parentId == parentId && d.isModal),
+      hasModalDialog: (parentId) => registry.dialogs.values.any((d) => d.parentId == parentId && d.isModal),
       animation: animation,
       animationController: animationController,
       cascadeCloseService: cascade,
@@ -168,8 +161,7 @@ class LifecycleTestHarness {
   late int closeAppAborted;
   late int beforeForceCloseApp;
 
-  FakeWindowPositionCalculator get fakePositionCalculator =>
-      positionCalculator as FakeWindowPositionCalculator;
+  FakeWindowPositionCalculator get fakePositionCalculator => positionCalculator as FakeWindowPositionCalculator;
 
   void seedWindow(int id, {int? parentId}) {
     registry.windows[id] = ViewWindowEntry(

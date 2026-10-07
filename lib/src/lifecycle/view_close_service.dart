@@ -84,6 +84,7 @@ class ViewCloseService {
 
     await closeSubtreeByMode(viewId, closeMode);
   }
+
   @visibleForTesting
   ViewOwnerBase? ownerFor(int viewId) {
     if (registry.isPopup(viewId)) return lifecycle.popupOwner;
@@ -114,11 +115,23 @@ class ViewCloseService {
     delegate.disposeView(viewId);
 
     ffi.setConfirmClose(viewId, isConfirm: true);
-    if (isModalDialog) {
-      ffi.destroyModalDialog(viewId);
+    if (viewId == delegate.mainRealViewId() && delegate.stayAliveMainWindow && !Platform.isMacOS) {
+      // hide and unregister main view instead of fully close
+      ffi.hide(viewId);
+      ffi.setIgnoreMouseEvents(viewId, true);
     } else {
-      ffi.forceCloseView(viewId);
+      if (isModalDialog) {
+        ffi.destroyModalDialog(viewId);
+      } else {
+        ffi.forceCloseView(viewId);
+      }
     }
+
+    // destroy main window if closeAppAfterLastWindowClosed == true and no more views exist
+    if (lifecycle.registry.windowViewIds.isEmpty && delegate.closeAppAfterLastWindowClosed) {
+      _destroyLastWindowIfExist();
+    }
+
     cascadeCloseService.completeWindow(viewId);
   }
 
@@ -134,10 +147,7 @@ class ViewCloseService {
 
   void cancelCascade(int viewId) {
     final parents = [...registry.parentWindowChain(viewId), ...registry.parentDialogChain(viewId), viewId];
-    MvdLog.instance.info('close', 'cascade abort', {
-      'realId': viewId,
-      'chain': parents.join(','),
-    });
+    MvdLog.instance.info('close', 'cascade abort', {'realId': viewId, 'chain': parents.join(',')});
     for (final parent in parents) {
       ffi.setPreConfirmClose(parent, false);
       cascadeCloseService.abort(parent);
@@ -147,10 +157,7 @@ class ViewCloseService {
   /// Release waits for [rootId] and its current descendants only.
   /// Does not touch pending closes of sibling / unrelated roots.
   void _abortSubtreeWaits(int rootId) {
-    cascadeCloseService.abortIds([
-      rootId,
-      ...registry.descendantWindowIdsDeepestFirst(rootId),
-    ]);
+    cascadeCloseService.abortIds([rootId, ...registry.descendantWindowIdsDeepestFirst(rootId)]);
   }
 
   /// Drop stale descendant waits for this tree before force/destroy cycles.
@@ -219,8 +226,21 @@ class ViewCloseService {
         return false;
       }
     }
+    if (!delegate.closeAppAfterLastWindowClosed && effectiveMode == CloseMode.destroy ||
+        delegate.closeAppAfterLastWindowClosed) {
+      _destroyLastWindowIfExist();
+    }
 
     return true;
+  }
+
+  void _destroyLastWindowIfExist() {
+    try {
+      if (!delegate.stayAliveMainWindow) return;
+      ffi.forceCloseView(delegate.mainRealViewId());
+    } catch (_) {
+      // ignore
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -394,12 +414,18 @@ class ViewCloseService {
     ffi.softCloseWindow(viewId);
   }
 
-  void _macosHideInsteadOfClose(int viewId) {
+  void _macosHideInsteadOfClose(int viewId) async {
     destroyPopupsByParent(viewId);
     removeAllDialogsByParent(viewId);
-    lifecycle.proxies.state.hide(viewId);
+
+    if (lifecycle.proxies.state.isFullScreen(viewId)) {
+      ffi.hideRequest(viewId);
+      lifecycle.proxies.state.setFullScreen(viewId, false);
+    } else {
+      ffi.hide(viewId);
+    }
+
     ffi.setPreConfirmClose(viewId, false);
-    cascadeCloseService.completeWindow(viewId);
   }
 
   int? get _anchorId => anchorViewId;

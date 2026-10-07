@@ -11,7 +11,9 @@ public class MultiviewDesktopPlugin: NSObject, FlutterPlugin {
         let impl = MultiviewDesktopImpl.shared
         impl.engine = engine
         impl.mainWindowRef = window
-        window.orderOut(nil)
+
+        // force hide the window until Dart show.
+        impl.armStartupHide(window)
         window.backgroundColor = .clear
         window.titleVisibility = .hidden
         window.standardWindowButton(.closeButton)?.isHidden = true
@@ -39,7 +41,9 @@ public class MultiviewDesktopPlugin: NSObject, FlutterPlugin {
         if let window = impl.mainWindowRef,
            let vc = window.contentViewController as? FlutterViewController {
             impl.registerMain(window, viewId: vc.viewIdentifier)
-            window.orderOut(nil)
+            if impl.startupHidePending {
+                window.orderOut(nil)
+            }
         }
 
 

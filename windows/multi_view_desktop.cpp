@@ -324,7 +324,7 @@ namespace multi_view_desktop {
         DWORD style = WS_OVERLAPPED | WS_CAPTION | WS_THICKFRAME;
         // WS_SYSMENU is required for the title-bar close button on Windows.
         // Modal dialogs omit it; modeless dialogs include it when enabled.
-        if (!is_modal && show_close_button) {
+        if (show_close_button) {
             style |= WS_SYSMENU;
         }
         const DWORD ex_style = WS_EX_DLGMODALFRAME;
@@ -338,7 +338,7 @@ namespace multi_view_desktop {
                 CW_USEDEFAULT, CW_USEDEFAULT, window_width, window_height, owner,
                 nullptr, GetModuleHandle(nullptr), nullptr);
         if (hwnd && is_modal) {
-            HMENU system_menu = GetSystemMenu(hwnd, FALSE);
+            HMENU system_menu = GetSystemMenu(hwnd, TRUE);
             if (system_menu) {
                 EnableMenuItem(system_menu, SC_CLOSE, MF_BYCOMMAND | MF_GRAYED);
             }
@@ -937,7 +937,7 @@ int64_t MultiViewDesktop::CreateModalDialogWindow(
     const std::wstring wide_title = converter.from_bytes(title);
 
     HWND parent_hwnd = parent != nullptr ? parent->native_window : nullptr;
-    const bool show_close_button = !is_modal && window_button_visibility;
+    const bool show_close_button = window_button_visibility;
     HWND host_hwnd = CreateDialogHostWindow(
             wide_title, client_width, client_height, is_modal, show_close_button,
             parent_hwnd);
