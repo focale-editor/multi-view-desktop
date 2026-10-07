@@ -1,7 +1,10 @@
 ## 2.0.2+focale.1
 
-- Merge upstream changes through `54aa6f4`, including versions 2.0.1 and 2.0.2.
-- Preserve Focale's app-shell capture optimization, Linux lifecycle and modal focus fixes, and Windows view creation accessibility guard.
+Focale fork of 2.0.2. Upstream structure, plus:
+
+- `MainAppShellCapture` no longer walks the whole main view after every frame. It keeps the element of the entry widget it found and walks again only once that element is unmounted.
+- Linux. Activating a window blocked by a modal dialog hands keyboard focus back to that dialog, so typing never reaches the blocked window.
+- Linux. Window close paths never quit the application. The host keeps the GApplication alive until the shared engine has stopped (Focale ADR 0252).
 
 ## 2.0.2
 
@@ -15,14 +18,6 @@
 - Fix: `showOnInit: false` on the startup window. The initial window stays hidden until `completeShow()`, same as windows opened later
 - Breaking. `closeAppAfterLastWindowClosed` moved from `MacosPlatformParams` to `MultiPlatformParams` (`generalParams`).
 - [Check README] Linux runner update
-
-## 2.0.0+focale.1
-
-Focale fork of 2.0.0. Upstream structure, plus:
-
-- `MainAppShellCapture` no longer walks the whole main view after every frame. It keeps the element of the entry widget it found and walks again only once that element is unmounted.
-- Linux. Activating a window blocked by a modal dialog hands keyboard focus back to that dialog, so typing never reaches the blocked window.
-- Linux. Window close paths never quit the application. The host keeps the GApplication alive until the shared engine has stopped (Focale ADR 0252).
 
 ## 2.0.0
 
