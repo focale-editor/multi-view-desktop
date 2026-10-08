@@ -4,7 +4,8 @@ Focale fork of 2.0.2. Upstream structure, plus:
 
 - `MainAppShellCapture` no longer walks the whole main view after every frame. It keeps the element of the entry widget it found and walks again only once that element is unmounted.
 - Linux. Activating a window blocked by a modal dialog hands keyboard focus back to that dialog, so typing never reaches the blocked window.
-- Linux. Window close paths never quit the application. The host keeps the GApplication alive until the shared engine has stopped (Focale ADR 0252).
+- Linux. Window close paths never quit the application. The host keeps the GApplication alive until the shared engine has stopped.
+- Linux. Render descendants of a view whose engine is already finalized are no longer released. Their EGL display is gone, and releasing them aborted the application while it exited.
 
 ## 2.0.2
 

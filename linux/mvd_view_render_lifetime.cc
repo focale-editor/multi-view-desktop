@@ -2,12 +2,33 @@
 
 #include <flutter_linux/flutter_linux.h>
 
+#include <atomic>
+
 /// Identifies the references owned by the view, rather than its GTK container.
 static constexpr char kRenderChildren[] = "mvd-render-children";
 
+/// Marks an engine whose finalization is observed by this file.
+static constexpr char kEngineObserved[] = "mvd-render-engine-observed";
+
+/// Set once a view's engine is finalized. Its EGL display goes with it, so
+/// GL-backed render children can no longer be finalized safely.
+static std::atomic<bool> g_engine_finalized{false};
+
+/// Engine finalization may happen on the raster thread.
+static void engine_finalized_cb(gpointer, GObject*) {
+  g_engine_finalized = true;
+}
+
 /// Releases GTK objects on the main thread after the engine drops the view.
 static gboolean release_children_cb(gpointer data) {
-  g_ptr_array_unref(static_cast<GPtrArray*>(data));
+  GPtrArray* children = static_cast<GPtrArray*>(data);
+  if (g_engine_finalized) {
+    // Finalizing them now calls eglDestroyImageKHR without a provider and
+    // libepoxy aborts. This only happens while the application exits, so the
+    // operating system reclaims them instead.
+    g_ptr_array_set_free_func(children, nullptr);
+  }
+  g_ptr_array_unref(children);
   return G_SOURCE_REMOVE;
 }
 
@@ -38,6 +59,12 @@ static void view_destroyed_cb(GtkWidget* view, gpointer data) {
 static void retain_view_render_children(GtkWidget* view) {
   if (g_object_get_data(G_OBJECT(view), kRenderChildren) != nullptr) {
     return;
+  }
+  FlEngine* engine = fl_view_get_engine(FL_VIEW(view));
+  if (engine != nullptr &&
+      g_object_get_data(G_OBJECT(engine), kEngineObserved) == nullptr) {
+    g_object_set_data(G_OBJECT(engine), kEngineObserved, GINT_TO_POINTER(1));
+    g_object_weak_ref(G_OBJECT(engine), engine_finalized_cb, nullptr);
   }
   GPtrArray* children = g_ptr_array_new_with_free_func(g_object_unref);
   gtk_container_forall(GTK_CONTAINER(view), collect_children_cb, children);
