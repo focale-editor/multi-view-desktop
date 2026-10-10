@@ -6,6 +6,7 @@ Focale fork of 2.0.2. Upstream structure, plus:
 - Linux. Activating a window blocked by a modal dialog hands keyboard focus back to that dialog, so typing never reaches the blocked window.
 - Linux. Window close paths never quit the application. The host keeps the GApplication alive until the shared engine has stopped.
 - Linux. Render descendants of a view whose engine is already finalized are no longer released. Their EGL display is gone, and releasing them aborted the application while it exited.
+- `setPreventClose` and `isPreventClose` apply to dialogs. A dialog can refuse the close requests of the operating system, which `setClosable(false)` does not stop on Wayland.
 
 ## 2.0.2
 

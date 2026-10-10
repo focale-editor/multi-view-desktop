@@ -49,6 +49,14 @@ void main() {
       expect(h.ffi.hasCall('show:10'), isTrue);
     });
 
+    test('state.setPreventClose works for dialogs via dialogSupports', () {
+      h.seedWindow(1);
+      h.seedDialog(10, parentId: 1);
+
+      h.proxies.state.setPreventClose(10, true);
+      expect(h.ffi.hasCall('setPreventClose:10:true'), isTrue);
+    });
+
     test('state.maximize is skipped for dialogs without dialogSupports', () {
       h.seedWindow(1);
       h.seedDialog(10, parentId: 1);

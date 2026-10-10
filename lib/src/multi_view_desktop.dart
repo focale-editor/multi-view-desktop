@@ -328,6 +328,9 @@ class MultiViewDesktop {
 
   /// When `true`, any close attempt is blocked and `WindowListener.onWindowClose`
   /// fires instead. Set back to `false` to re-enable closing.
+  ///
+  /// Also applies to dialogs, whose `closeDialog` is blocked like any other
+  /// close attempt: set it back to `false` before closing one yourself.
   void setPreventClose(bool isPreventClose) {
     _proxies.state.setPreventClose(_realId, isPreventClose);
   }

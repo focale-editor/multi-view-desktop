@@ -91,10 +91,10 @@ class ViewWindowStateProxy extends ViewNativeProxy {
     call(viewId, () => ffi.setAlwaysOnTop(viewId, isAlwaysOnTop: isAlwaysOnTop), dialogSupports: true);
   }
 
-  bool isPreventClose(int viewId) => call(viewId, () => ffi.isPreventClose(viewId)) ?? false;
+  bool isPreventClose(int viewId) => call(viewId, () => ffi.isPreventClose(viewId), dialogSupports: true) ?? false;
 
   void setPreventClose(int viewId, bool isPreventClose) {
-    call(viewId, () => ffi.setPreventClose(viewId, isPreventClose: isPreventClose), dialogSupports: false);
+    call(viewId, () => ffi.setPreventClose(viewId, isPreventClose: isPreventClose), dialogSupports: true);
   }
 
   void startDragging(int viewId) {
